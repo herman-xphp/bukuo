@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -63,12 +64,13 @@ func main() {
 	accountRepo := postgres.NewAccountRepository(db)
 	periodRepo := postgres.NewPeriodRepository(db)
 	journalRepo := postgres.NewJournalRepository(db)
+	auditLogRepo := postgres.NewAuditLogRepository(db)
 
 	// JWT Service
 	jwtService := authUC.NewJWTService(cfg.JWT.Secret, cfg.JWT.Expiry)
 
 	// Usecase Layer - Business Logic
-	authUsecase := authUC.NewAuthUsecase(userRepo, companyRepo, jwtService)
+	authUsecase := authUC.NewAuthUsecase(userRepo, companyRepo, jwtService, auditLogRepo, cfg.Security)
 	accountUsecase := accountUC.NewAccountUsecase(accountRepo)
 	periodUsecase := periodUC.NewPeriodUsecase(periodRepo)
 	journalUsecase := journalUC.NewJournalUsecase(journalRepo, accountRepo, periodRepo)
@@ -86,7 +88,7 @@ func main() {
 
 	// Middleware
 	authMiddleware := middleware.NewAuthMiddleware(jwtService)
-	rateLimiter := middleware.NewRateLimiter(100, time.Minute) // 100 req/min
+	rateLimiter := middleware.NewRateLimiter(cfg.Security.RateLimitPerMin, time.Minute)
 
 	// ============================================
 	// ROUTER SETUP
@@ -100,7 +102,7 @@ func main() {
 	// Global middleware
 	r.Use(gin.Logger())
 	r.Use(middleware.RecoveryHandler())
-	r.Use(corsMiddleware())
+	r.Use(corsMiddleware(cfg.Security.AllowedOrigins, cfg.Server.Env))
 	r.Use(rateLimiter.RateLimitMiddleware())
 
 	// 404 handler
@@ -113,19 +115,34 @@ func main() {
 	httpDelivery.SetupRouter(r, handlers, authMiddleware)
 
 	// Start server
-	log.Printf("🚀 Bukuo running on port %s", cfg.Server.Port)
+	log.Printf("🚀 Bukuo running on port %s (%s)", cfg.Server.Port, cfg.Server.Env)
 	log.Printf("📚 Swagger: http://localhost:%s/swagger/index.html", cfg.Server.Port)
+	log.Printf("🔒 CORS: %v", cfg.Security.AllowedOrigins)
 	if err := r.Run(":" + cfg.Server.Port); err != nil {
 		log.Fatal(err)
 	}
 }
 
-// corsMiddleware handles CORS for frontend
-func corsMiddleware() gin.HandlerFunc {
+// corsMiddleware handles CORS with whitelist
+func corsMiddleware(allowedOrigins []string, env string) gin.HandlerFunc {
+	// Build origin map for O(1) lookup
+	originMap := make(map[string]bool)
+	for _, origin := range allowedOrigins {
+		originMap[strings.TrimSpace(origin)] = true
+	}
+
 	return func(c *gin.Context) {
-		c.Header("Access-Control-Allow-Origin", "*")
+		origin := c.Request.Header.Get("Origin")
+
+		// In development, allow all. In production, check whitelist.
+		if env != "production" || originMap[origin] {
+			c.Header("Access-Control-Allow-Origin", origin)
+		}
+
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-		c.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Accept, Authorization")
+		c.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Accept, Authorization, X-Request-ID")
+		c.Header("Access-Control-Allow-Credentials", "true")
+		c.Header("Access-Control-Max-Age", "86400")
 
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)

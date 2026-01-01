@@ -44,6 +44,8 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		Email:       req.Email,
 		Password:    req.Password,
 		Name:        req.Name,
+		IPAddress:   c.ClientIP(),
+		UserAgent:   c.Request.UserAgent(),
 	}
 
 	result, err := h.usecase.Register(c.Request.Context(), input)
@@ -67,13 +69,20 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 
 	input := auth.LoginInput{
-		Email:    req.Email,
-		Password: req.Password,
+		Email:     req.Email,
+		Password:  req.Password,
+		IPAddress: c.ClientIP(),
+		UserAgent: c.Request.UserAgent(),
 	}
 
 	result, err := h.usecase.Login(c.Request.Context(), input)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		status := http.StatusUnauthorized
+		// Account locked returns 423 Locked
+		if err.Error() == "account is locked due to too many failed attempts" {
+			status = http.StatusLocked
+		}
+		c.JSON(status, gin.H{"error": err.Error()})
 		return
 	}
 
