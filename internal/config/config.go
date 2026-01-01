@@ -50,8 +50,8 @@ func Load() *Config {
 			Name:     getEnv("DB_NAME", "bukuo_db"),
 		},
 		JWT: JWTConfig{
-			Secret: getEnv("JWT_SECRET", ""),
-			Expiry: 15 * time.Minute,
+			Secret: getEnv("JWT_SECRET", "bukuo-secret-key-please-change-in-production"),
+			Expiry: 24 * time.Hour,
 		},
 	}
 }
