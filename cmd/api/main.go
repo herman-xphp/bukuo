@@ -2,7 +2,6 @@ package main
 
 import (
 	"log"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -108,7 +107,11 @@ func main() {
 	// Global middleware
 	r.Use(gin.Logger())
 	r.Use(middleware.RecoveryHandler())
-	r.Use(corsMiddleware(cfg.Security.AllowedOrigins, cfg.Server.Env))
+	corsConfig := middleware.CORSConfig{
+		AllowedOrigins: cfg.Security.AllowedOrigins,
+		Environment:    cfg.Server.Env,
+	}
+	r.Use(middleware.NewCORSMiddleware(corsConfig))
 	r.Use(rateLimiter.RateLimitMiddleware())
 
 	// 404 handler
@@ -126,35 +129,5 @@ func main() {
 	log.Printf("🔒 CORS: %v", cfg.Security.AllowedOrigins)
 	if err := r.Run(":" + cfg.Server.Port); err != nil {
 		log.Fatal(err)
-	}
-}
-
-// corsMiddleware handles CORS with whitelist
-func corsMiddleware(allowedOrigins []string, env string) gin.HandlerFunc {
-	// Build origin map for O(1) lookup
-	originMap := make(map[string]bool)
-	for _, origin := range allowedOrigins {
-		originMap[strings.TrimSpace(origin)] = true
-	}
-
-	return func(c *gin.Context) {
-		origin := c.Request.Header.Get("Origin")
-
-		// In development, allow all. In production, check whitelist.
-		if env != "production" || originMap[origin] {
-			c.Header("Access-Control-Allow-Origin", origin)
-		}
-
-		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-		c.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Accept, Authorization, X-Request-ID")
-		c.Header("Access-Control-Allow-Credentials", "true")
-		c.Header("Access-Control-Max-Age", "86400")
-
-		if c.Request.Method == "OPTIONS" {
-			c.AbortWithStatus(204)
-			return
-		}
-
-		c.Next()
 	}
 }
