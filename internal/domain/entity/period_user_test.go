@@ -71,7 +71,7 @@ func TestAccountingPeriod_Close(t *testing.T) {
 func TestNewUser(t *testing.T) {
 	companyID := uuid.New()
 
-	user, err := NewUser(companyID, "test@example.com", "password123", "Test User", UserRoleOwner)
+	user, err := NewUser(companyID, "test@example.com", "Password123", "Test User", UserRoleOwner)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -94,10 +94,10 @@ func TestNewUser(t *testing.T) {
 }
 
 func TestUser_CheckPassword(t *testing.T) {
-	user, _ := NewUser(uuid.New(), "test@example.com", "password123", "Test", UserRoleOwner)
+	user, _ := NewUser(uuid.New(), "test@example.com", "Password123", "Test", UserRoleOwner)
 
 	// Correct password
-	if err := user.CheckPassword("password123"); err != nil {
+	if err := user.CheckPassword("Password123"); err != nil {
 		t.Errorf("Password should match: %v", err)
 	}
 
@@ -108,7 +108,7 @@ func TestUser_CheckPassword(t *testing.T) {
 
 	// Inactive user
 	user.IsActive = false
-	if err := user.CheckPassword("password123"); err == nil {
+	if err := user.CheckPassword("Password123"); err == nil {
 		t.Error("Inactive user should fail")
 	}
 }

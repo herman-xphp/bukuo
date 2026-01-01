@@ -186,14 +186,10 @@ func (uc *JournalUsecase) ReverseJournal(ctx context.Context, id, userID uuid.UU
 	// 7. Auto-post the reversal
 	reversal.Post(userID)
 
-	// 8. Save reversal
-	if err := uc.journalRepo.Create(ctx, reversal); err != nil {
+	// 8. Save reversal AND update original in single transaction (C2 fix)
+	if err := uc.journalRepo.CreateReversalWithTransaction(ctx, reversal, original.ID); err != nil {
 		return nil, err
 	}
-
-	// 9. Update original status to REVERSED
-	original.Status = entity.JournalStatusReversed
-	uc.journalRepo.Update(ctx, original)
 
 	return reversal, nil
 }

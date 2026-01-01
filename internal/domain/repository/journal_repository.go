@@ -17,4 +17,7 @@ type JournalRepository interface {
 	GetByDateRange(ctx context.Context, companyID uuid.UUID, start, end time.Time) ([]entity.JournalEntry, error)
 	Update(ctx context.Context, journal *entity.JournalEntry) error
 	CountByYear(ctx context.Context, companyID uuid.UUID, year int) (int, error)
+
+	// CreateReversalWithTransaction creates reversal journal and updates original in single transaction
+	CreateReversalWithTransaction(ctx context.Context, reversal *entity.JournalEntry, originalID uuid.UUID) error
 }
