@@ -15,15 +15,20 @@ var (
 	ErrAlreadyPosted      = errors.New("jurnal sudah diposting")
 	ErrNotDraft           = errors.New("jurnal bukan draft")
 	ErrDualAmount         = errors.New("baris tidak boleh memiliki debit dan credit sekaligus")
+	ErrNotPendingApproval = errors.New("jurnal tidak menunggu persetujuan")
+	ErrCannotReject       = errors.New("hanya jurnal pending approval yang bisa ditolak")
 )
 
 // JournalStatus represents the status of a journal entry
 type JournalStatus string
 
 const (
-	JournalStatusDraft    JournalStatus = "DRAFT"
-	JournalStatusPosted   JournalStatus = "POSTED"
-	JournalStatusReversed JournalStatus = "REVERSED"
+	JournalStatusDraft           JournalStatus = "DRAFT"
+	JournalStatusPendingApproval JournalStatus = "PENDING_APPROVAL"
+	JournalStatusApproved        JournalStatus = "APPROVED"
+	JournalStatusRejected        JournalStatus = "REJECTED"
+	JournalStatusPosted          JournalStatus = "POSTED"
+	JournalStatusReversed        JournalStatus = "REVERSED"
 )
 
 // JournalEntry represents a journal entry header
@@ -41,7 +46,13 @@ type JournalEntry struct {
 	CreatedAt   time.Time     `json:"created_at"`
 	PostedAt    *time.Time    `json:"posted_at"`
 	PostedBy    *uuid.UUID    `json:"posted_by"`
-	Lines       []JournalLine `json:"lines"`
+	// Approval workflow fields
+	ApprovedAt   *time.Time    `json:"approved_at"`
+	ApprovedBy   *uuid.UUID    `json:"approved_by"`
+	RejectedAt   *time.Time    `json:"rejected_at"`
+	RejectedBy   *uuid.UUID    `json:"rejected_by"`
+	RejectReason string        `json:"reject_reason,omitempty"`
+	Lines        []JournalLine `json:"lines"`
 }
 
 // JournalLine represents a journal entry line item
@@ -123,7 +134,8 @@ func (j *JournalEntry) Validate() error {
 
 // Post marks the journal as posted
 func (j *JournalEntry) Post(userID uuid.UUID) error {
-	if j.Status != JournalStatusDraft {
+	// Allow posting from both DRAFT and APPROVED status
+	if j.Status != JournalStatusDraft && j.Status != JournalStatusApproved {
 		return ErrAlreadyPosted
 	}
 	if err := j.Validate(); err != nil {
@@ -139,4 +151,46 @@ func (j *JournalEntry) Post(userID uuid.UUID) error {
 // CanReverse checks if the journal can be reversed
 func (j *JournalEntry) CanReverse() bool {
 	return j.Status == JournalStatusPosted
+}
+
+// SubmitForApproval submits journal for approval
+func (j *JournalEntry) SubmitForApproval() error {
+	if j.Status != JournalStatusDraft {
+		return ErrNotDraft
+	}
+	if err := j.Validate(); err != nil {
+		return err
+	}
+	j.Status = JournalStatusPendingApproval
+	return nil
+}
+
+// Approve approves the journal
+func (j *JournalEntry) Approve(userID uuid.UUID) error {
+	if j.Status != JournalStatusPendingApproval {
+		return ErrNotPendingApproval
+	}
+	now := time.Now()
+	j.Status = JournalStatusApproved
+	j.ApprovedAt = &now
+	j.ApprovedBy = &userID
+	return nil
+}
+
+// Reject rejects the journal with reason
+func (j *JournalEntry) Reject(userID uuid.UUID, reason string) error {
+	if j.Status != JournalStatusPendingApproval {
+		return ErrCannotReject
+	}
+	now := time.Now()
+	j.Status = JournalStatusRejected
+	j.RejectedAt = &now
+	j.RejectedBy = &userID
+	j.RejectReason = reason
+	return nil
+}
+
+// NeedsApproval checks if journal exceeds threshold
+func (j *JournalEntry) NeedsApproval(threshold decimal.Decimal) bool {
+	return j.TotalDebit().GreaterThan(threshold)
 }
