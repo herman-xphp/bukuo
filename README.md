@@ -177,25 +177,37 @@ curl http://localhost:8080/api/accounts \
 
 ## 🧪 Testing
 
+We respect your production data! Testing uses a separate database (`bukuo_test`).
+
+### 1. Setup Test Database
+
+One-time setup to create database and run migrations:
+
 ```bash
-# Run all tests
-go test ./... -v
-
-# With coverage
-go test ./... -cover
-
-# Generate coverage report
-go test ./... -coverprofile=coverage.out
-go tool cover -html=coverage.out
+make setup-test-db
 ```
 
-### Test Coverage
+### 2. Run Tests
 
-| Package       | Coverage |
-| ------------- | -------- |
-| domain/entity | 84.1%    |
-| middleware    | 53.7%    |
-| usecase/auth  | 30.2%    |
+This command automatically sets `DB_NAME=bukuo_test` to prevent data pollution:
+
+```bash
+make test
+```
+
+### Manual Testing
+
+If you need to run tests manually without Make, ensure you set the environment variable:
+
+```bash
+export DB_NAME=bukuo_test && go test ./...
+```
+
+### Test Coverage (Latest Sprint)
+
+- **Domain Layer**: ~85%
+- **Usecase Layer**: ~80% (Closing, Journal, Opening, Auth)
+- **Middleware**: ~55%
 
 ## 🛡️ Security Features
 
