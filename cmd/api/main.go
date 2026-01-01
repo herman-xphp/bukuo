@@ -1,7 +1,12 @@
 package main
 
 import (
-	"log"
+	"context"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -48,12 +53,29 @@ func main() {
 	// Load config
 	cfg := config.Load()
 
+	// Setup structured logger
+	logFormat := "text"
+	if cfg.Server.Env == "production" {
+		logFormat = "json"
+	}
+	logger := middleware.SetupLogger(middleware.LoggerConfig{
+		Format:      logFormat,
+		Level:       "info",
+		Environment: cfg.Server.Env,
+	})
+
+	logger.Info("Starting Bukuo API",
+		slog.String("env", cfg.Server.Env),
+		slog.String("port", cfg.Server.Port),
+	)
+
 	// Connect database
 	db, err := database.Connect(cfg.Database)
 	if err != nil {
-		log.Fatal(err)
+		logger.Error("Failed to connect database", slog.String("error", err.Error()))
+		os.Exit(1)
 	}
-	defer db.Close()
+	logger.Info("Database connected successfully")
 
 	// ============================================
 	// DEPENDENCY INJECTION (Clean Architecture)
@@ -105,7 +127,7 @@ func main() {
 	r := gin.New()
 
 	// Global middleware
-	r.Use(gin.Logger())
+	r.Use(middleware.RequestLogger(logger)) // Structured logging
 	r.Use(middleware.RecoveryHandler())
 	corsConfig := middleware.CORSConfig{
 		AllowedOrigins: cfg.Security.AllowedOrigins,
@@ -123,11 +145,49 @@ func main() {
 	// Setup routes with injected dependencies
 	httpDelivery.SetupRouter(r, handlers, authMiddleware)
 
-	// Start server
-	log.Printf("🚀 Bukuo running on port %s (%s)", cfg.Server.Port, cfg.Server.Env)
-	log.Printf("📚 Swagger: http://localhost:%s/swagger/index.html", cfg.Server.Port)
-	log.Printf("🔒 CORS: %v", cfg.Security.AllowedOrigins)
-	if err := r.Run(":" + cfg.Server.Port); err != nil {
-		log.Fatal(err)
+	// ============================================
+	// GRACEFUL SHUTDOWN
+	// ============================================
+
+	srv := &http.Server{
+		Addr:         ":" + cfg.Server.Port,
+		Handler:      r,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
+
+	// Start server in goroutine
+	go func() {
+		logger.Info("🚀 Bukuo API started",
+			slog.String("port", cfg.Server.Port),
+			slog.String("swagger", "http://localhost:"+cfg.Server.Port+"/swagger/index.html"),
+		)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("Server error", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+	}()
+
+	// Wait for interrupt signal
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	logger.Info("⏳ Shutting down server...")
+
+	// Give outstanding requests 30 seconds to complete
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Shutdown HTTP server
+	if err := srv.Shutdown(ctx); err != nil {
+		logger.Error("Server forced to shutdown", slog.String("error", err.Error()))
+	}
+
+	// Close database connection
+	db.Close()
+	logger.Info("✅ Database connection closed")
+
+	logger.Info("👋 Server exited gracefully")
 }
