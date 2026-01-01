@@ -21,4 +21,7 @@ type JournalRepository interface {
 
 	// CreateReversalWithTransaction creates reversal journal and updates original in single transaction
 	CreateReversalWithTransaction(ctx context.Context, reversal *entity.JournalEntry, originalID uuid.UUID) error
+
+	// ClosePeriodWithTransaction creates closing journal and updates period status in single transaction
+	ClosePeriodWithTransaction(ctx context.Context, closingJournal *entity.JournalEntry, period *entity.AccountingPeriod) error
 }

@@ -287,3 +287,58 @@ func (r *JournalRepository) CreateReversalWithTransaction(ctx context.Context, r
 
 	return tx.Commit(ctx)
 }
+
+// ClosePeriodWithTransaction creates closing journal and updates period status in single transaction
+func (r *JournalRepository) ClosePeriodWithTransaction(ctx context.Context, closingJournal *entity.JournalEntry, period *entity.AccountingPeriod) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	// 1. Insert closing journal header
+	headerQuery := `
+		INSERT INTO journal_entries 
+		(id, company_id, period_id, entry_number, entry_date, description, status, source_type, source_id, created_by, created_at, posted_at, posted_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+	`
+	_, err = tx.Exec(ctx, headerQuery,
+		closingJournal.ID, closingJournal.CompanyID, closingJournal.PeriodID, closingJournal.EntryNumber,
+		closingJournal.EntryDate, closingJournal.Description, closingJournal.Status, closingJournal.SourceType,
+		closingJournal.SourceID, closingJournal.CreatedBy, closingJournal.CreatedAt, closingJournal.PostedAt, closingJournal.PostedBy,
+	)
+	if err != nil {
+		return err
+	}
+
+	// 2. Insert closing journal lines
+	lineQuery := `
+		INSERT INTO journal_lines 
+		(id, journal_id, line_number, account_id, description, debit_amount, credit_amount)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+	`
+	for i, line := range closingJournal.Lines {
+		_, err = tx.Exec(ctx, lineQuery,
+			uuid.New(), closingJournal.ID, i+1, line.AccountID,
+			line.Description, line.DebitAmount, line.CreditAmount,
+		)
+		if err != nil {
+			return err
+		}
+	}
+
+	// 3. Update period status
+	periodQuery := `
+		UPDATE accounting_periods
+		SET status = $1, closed_at = $2, closed_by = $3, updated_at = NOW()
+		WHERE id = $4
+	`
+	_, err = tx.Exec(ctx, periodQuery,
+		period.Status, period.ClosedAt, period.ClosedBy, period.ID,
+	)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}
