@@ -14,6 +14,7 @@ import (
 	authUC "github.com/herman-xphp/bukuo/internal/usecase/auth"
 	journalUC "github.com/herman-xphp/bukuo/internal/usecase/journal"
 	periodUC "github.com/herman-xphp/bukuo/internal/usecase/period"
+	reportUC "github.com/herman-xphp/bukuo/internal/usecase/report"
 )
 
 func main() {
@@ -46,6 +47,7 @@ func main() {
 	accountUsecase := accountUC.NewAccountUsecase(accountRepo)
 	periodUsecase := periodUC.NewPeriodUsecase(periodRepo)
 	journalUsecase := journalUC.NewJournalUsecase(journalRepo, accountRepo, periodRepo)
+	reportUsecase := reportUC.NewReportUsecase(journalRepo, accountRepo, periodRepo)
 
 	// Delivery Layer - HTTP Handlers
 	handlers := &httpDelivery.Handlers{
@@ -54,6 +56,7 @@ func main() {
 		Account: handler.NewAccountHandler(accountUsecase),
 		Period:  handler.NewPeriodHandler(periodUsecase),
 		Journal: handler.NewJournalHandler(journalUsecase),
+		Report:  handler.NewReportHandler(reportUsecase),
 	}
 
 	// Middleware

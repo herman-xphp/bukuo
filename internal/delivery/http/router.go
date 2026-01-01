@@ -13,6 +13,7 @@ type Handlers struct {
 	Journal *handler.JournalHandler
 	Account *handler.AccountHandler
 	Period  *handler.PeriodHandler
+	Report  *handler.ReportHandler
 }
 
 // SetupRouter configures all routes
@@ -60,6 +61,14 @@ func SetupRouter(r *gin.Engine, h *Handlers, authMW *middleware.AuthMiddleware) 
 			journals.POST("", h.Journal.Create)
 			journals.GET("/:id", h.Journal.GetByID)
 			journals.POST("/:id/post", h.Journal.Post)
+		}
+
+		// Reports
+		reports := api.Group("/reports")
+		{
+			reports.GET("/trial-balance", h.Report.TrialBalance)
+			reports.GET("/ledger/:account_id", h.Report.GeneralLedger)
+			reports.GET("/income-statement", h.Report.IncomeStatement)
 		}
 	}
 }
