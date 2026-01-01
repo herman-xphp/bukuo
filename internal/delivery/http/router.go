@@ -15,6 +15,7 @@ type Handlers struct {
 	Period  *handler.PeriodHandler
 	Report  *handler.ReportHandler
 	Closing *handler.ClosingHandler
+	Opening *handler.OpeningHandler
 }
 
 // SetupRouter configures all routes
@@ -84,6 +85,13 @@ func SetupRouter(r *gin.Engine, h *Handlers, authMW *middleware.AuthMiddleware) 
 		{
 			closingRoutes.GET("/preview/:period_id", h.Closing.PreviewClosing)
 			closingRoutes.POST("/period", h.Closing.ClosePeriod)
+		}
+
+		// Opening Balance
+		openingRoutes := api.Group("/opening-balance")
+		{
+			openingRoutes.GET("/template", h.Opening.Template)
+			openingRoutes.POST("/import", h.Opening.Import)
 		}
 	}
 }

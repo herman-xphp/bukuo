@@ -104,7 +104,7 @@ func (uc *OpeningBalanceUsecase) ImportOpeningBalance(ctx context.Context, input
 		var debit, credit decimal.Decimal
 
 		switch acc.NormalBalance() {
-		case entity.BalanceDebit:
+		case "DEBIT":
 			// Debit normal: positive balance = debit entry
 			if b.Balance.IsPositive() {
 				debit = b.Balance
@@ -113,7 +113,7 @@ func (uc *OpeningBalanceUsecase) ImportOpeningBalance(ctx context.Context, input
 				credit = b.Balance.Abs()
 				totalCredit = totalCredit.Add(credit)
 			}
-		case entity.BalanceCredit:
+		case "CREDIT":
 			// Credit normal: positive balance = credit entry
 			if b.Balance.IsPositive() {
 				credit = b.Balance
