@@ -96,9 +96,9 @@ func main() {
 	authUsecase := authUC.NewAuthUsecase(userRepo, companyRepo, jwtService, auditLogRepo, cfg.Security)
 	accountUsecase := accountUC.NewAccountUsecase(accountRepo)
 	periodUsecase := periodUC.NewPeriodUsecase(periodRepo)
-	journalUsecase := journalUC.NewJournalUsecase(journalRepo, accountRepo, periodRepo)
+	journalUsecase := journalUC.NewJournalUsecase(journalRepo, accountRepo, periodRepo, auditLogRepo)
 	reportUsecase := reportUC.NewReportUsecase(journalRepo, accountRepo, periodRepo)
-	closingUsecase := closingUC.NewClosingUsecase(journalRepo, accountRepo, periodRepo)
+	closingUsecase := closingUC.NewClosingUsecase(journalRepo, accountRepo, periodRepo, auditLogRepo)
 	openingUsecase := openingUC.NewOpeningBalanceUsecase(journalRepo, accountRepo, periodRepo)
 
 	// Delivery Layer - HTTP Handlers

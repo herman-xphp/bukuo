@@ -12,9 +12,10 @@ import (
 
 // ClosingUsecase handles period closing business logic
 type ClosingUsecase struct {
-	journalRepo repository.JournalRepository
-	accountRepo repository.AccountRepository
-	periodRepo  repository.PeriodRepository
+	journalRepo  repository.JournalRepository
+	accountRepo  repository.AccountRepository
+	periodRepo   repository.PeriodRepository
+	auditLogRepo repository.AuditLogRepository
 }
 
 // NewClosingUsecase creates a new ClosingUsecase
@@ -22,11 +23,13 @@ func NewClosingUsecase(
 	jr repository.JournalRepository,
 	ar repository.AccountRepository,
 	pr repository.PeriodRepository,
+	alr repository.AuditLogRepository,
 ) *ClosingUsecase {
 	return &ClosingUsecase{
-		journalRepo: jr,
-		accountRepo: ar,
-		periodRepo:  pr,
+		journalRepo:  jr,
+		accountRepo:  ar,
+		periodRepo:   pr,
+		auditLogRepo: alr,
 	}
 }
 
@@ -153,19 +156,29 @@ func (uc *ClosingUsecase) ClosePeriod(ctx context.Context, input ClosePeriodInpu
 		return nil, fmt.Errorf("failed to post closing journal: %w", err)
 	}
 
-	// 11. Save closing journal
-	if err := uc.journalRepo.Create(ctx, closingJournal); err != nil {
-		return nil, fmt.Errorf("failed to save closing journal: %w", err)
-	}
-
-	// 12. Close the period
+	// 11. Close the period (memory only first)
 	if err := period.Close(input.UserID); err != nil {
 		return nil, fmt.Errorf("failed to close period: %w", err)
 	}
 
-	if err := uc.periodRepo.Update(ctx, period); err != nil {
-		return nil, fmt.Errorf("failed to update period: %w", err)
+	// 12. Persist both Journal and Period status atomically
+	if err := uc.journalRepo.ClosePeriodWithTransaction(ctx, closingJournal, period); err != nil {
+		return nil, fmt.Errorf("failed to execute atomic closing: %w", err)
 	}
+
+	// 13. Audit log
+	auditLog := entity.NewAuditLog(
+		input.CompanyID,
+		&input.UserID,
+		"", // Email unknown here, optional/fetched if needed, or leave empty
+		entity.AuditActionUpdate,
+		"accounting_period",
+		&period.ID,
+		fmt.Sprintf("Closed period %s and generated closing entry %s", period.Name, closingJournal.EntryNumber),
+		"", // IP unknown in usecase
+		"", // UserAgent unknown in usecase
+	)
+	_ = uc.auditLogRepo.Create(ctx, auditLog)
 
 	return &ClosePeriodOutput{
 		Period:         period,

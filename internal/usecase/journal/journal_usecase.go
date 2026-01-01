@@ -13,9 +13,10 @@ import (
 
 // JournalUsecase handles journal entry business logic
 type JournalUsecase struct {
-	journalRepo repository.JournalRepository
-	accountRepo repository.AccountRepository
-	periodRepo  repository.PeriodRepository
+	journalRepo  repository.JournalRepository
+	accountRepo  repository.AccountRepository
+	periodRepo   repository.PeriodRepository
+	auditLogRepo repository.AuditLogRepository
 }
 
 // NewJournalUsecase creates a new JournalUsecase
@@ -23,11 +24,13 @@ func NewJournalUsecase(
 	jr repository.JournalRepository,
 	ar repository.AccountRepository,
 	pr repository.PeriodRepository,
+	alr repository.AuditLogRepository,
 ) *JournalUsecase {
 	return &JournalUsecase{
-		journalRepo: jr,
-		accountRepo: ar,
-		periodRepo:  pr,
+		journalRepo:  jr,
+		accountRepo:  ar,
+		periodRepo:   pr,
+		auditLogRepo: alr,
 	}
 }
 
@@ -230,6 +233,18 @@ func (uc *JournalUsecase) ApproveJournal(ctx context.Context, id, approverID uui
 		return nil, err
 	}
 
+	// Audit log
+	_ = uc.auditLogRepo.Create(ctx, entity.NewAuditLog(
+		journal.CompanyID,
+		&approverID,
+		"",
+		entity.AuditActionUpdate,
+		"journal_entry",
+		&journal.ID,
+		fmt.Sprintf("Approved journal %s", journal.EntryNumber),
+		"", "",
+	))
+
 	return journal, nil
 }
 
@@ -247,6 +262,18 @@ func (uc *JournalUsecase) RejectJournal(ctx context.Context, id, rejectorID uuid
 	if err := uc.journalRepo.Update(ctx, journal); err != nil {
 		return nil, err
 	}
+
+	// Audit log
+	_ = uc.auditLogRepo.Create(ctx, entity.NewAuditLog(
+		journal.CompanyID,
+		&rejectorID,
+		"",
+		entity.AuditActionUpdate,
+		"journal_entry",
+		&journal.ID,
+		fmt.Sprintf("Rejected journal %s: %s", journal.EntryNumber, reason),
+		"", "",
+	))
 
 	return journal, nil
 }
