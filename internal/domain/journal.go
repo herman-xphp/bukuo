@@ -16,7 +16,7 @@ const (
 )
 
 // JounalEntry - Header jurnal
-type JounalEntry struct {
+type JournalEntry struct {
 	ID          uuid.UUID     `json:"id"`
 	CompanyID   uuid.UUID     `json:"company_id"`
 	EntryNumber string        `json:"entry_number"` // JE-2026-0001
@@ -32,7 +32,7 @@ type JounalEntry struct {
 // JournalLine - Baris jurnal (debit/credit)
 type JournalLine struct {
 	ID           uuid.UUID       `json:"id"`
-	JounalID     uuid.UUID       `json:"journal_id"`
+	JournalID    uuid.UUID       `json:"journal_id"`
 	LineNumber   int             `json:"line_number"`
 	AccountID    uuid.UUID       `json:"account_id"`
 	Description  string          `json:"description"`
@@ -41,7 +41,7 @@ type JournalLine struct {
 }
 
 // TotalDebit - Jumlah semua debit
-func (j *JounalEntry) TotalDebit() decimal.Decimal {
+func (j *JournalEntry) TotalDebit() decimal.Decimal {
 	total := decimal.Zero
 	for _, line := range j.Lines {
 		total = total.Add(line.DebitAmount)
@@ -50,7 +50,7 @@ func (j *JounalEntry) TotalDebit() decimal.Decimal {
 }
 
 // TotalCredit - Jumlah semua credit
-func (j *JounalEntry) TotalCredit() decimal.Decimal {
+func (j *JournalEntry) TotalCredit() decimal.Decimal {
 	total := decimal.Zero
 	for _, line := range j.Lines {
 		total = total.Add(line.CreditAmount)
@@ -59,6 +59,6 @@ func (j *JounalEntry) TotalCredit() decimal.Decimal {
 }
 
 // IsBalanced - WAJIB: Debit = Credit
-func (j *JounalEntry) IsBalanced() bool {
+func (j *JournalEntry) IsBalanced() bool {
 	return j.TotalDebit().Equal(j.TotalCredit())
 }
