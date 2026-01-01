@@ -163,3 +163,93 @@ func (h *JournalHandler) Reverse(c *gin.Context) {
 		"data":    result,
 	})
 }
+
+// SubmitForApproval handles POST /journals/:id/submit-approval
+func (h *JournalHandler) SubmitForApproval(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid journal id"})
+		return
+	}
+
+	userID, _ := uuid.Parse(c.GetString("user_id"))
+
+	result, err := h.usecase.SubmitForApproval(c.Request.Context(), id, userID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Journal submitted for approval",
+		"data":    result,
+	})
+}
+
+// Approve handles POST /journals/:id/approve
+func (h *JournalHandler) Approve(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid journal id"})
+		return
+	}
+
+	approverID, _ := uuid.Parse(c.GetString("user_id"))
+
+	result, err := h.usecase.ApproveJournal(c.Request.Context(), id, approverID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Journal approved",
+		"data":    result,
+	})
+}
+
+// Reject handles POST /journals/:id/reject
+func (h *JournalHandler) Reject(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid journal id"})
+		return
+	}
+
+	var req struct {
+		Reason string `json:"reason" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	rejectorID, _ := uuid.Parse(c.GetString("user_id"))
+
+	result, err := h.usecase.RejectJournal(c.Request.Context(), id, rejectorID, req.Reason)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Journal rejected",
+		"data":    result,
+	})
+}
+
+// PendingApprovals handles GET /journals/pending
+func (h *JournalHandler) PendingApprovals(c *gin.Context) {
+	companyID, _ := uuid.Parse(c.GetString("company_id"))
+
+	result, err := h.usecase.GetPendingApprovals(c.Request.Context(), companyID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"data":  result,
+		"count": len(result),
+	})
+}

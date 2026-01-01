@@ -58,10 +58,14 @@ func SetupRouter(r *gin.Engine, h *Handlers, authMW *middleware.AuthMiddleware) 
 		// Journals
 		journals := api.Group("/journals")
 		{
+			journals.GET("/pending", h.Journal.PendingApprovals) // List pending approvals
 			journals.POST("", h.Journal.Create)
 			journals.GET("/:id", h.Journal.GetByID)
 			journals.POST("/:id/post", h.Journal.Post)
 			journals.POST("/:id/reverse", h.Journal.Reverse)
+			journals.POST("/:id/submit-approval", h.Journal.SubmitForApproval)
+			journals.POST("/:id/approve", h.Journal.Approve)
+			journals.POST("/:id/reject", h.Journal.Reject)
 		}
 
 		// Reports

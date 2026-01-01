@@ -15,6 +15,7 @@ type JournalRepository interface {
 	GetByEntryNumber(ctx context.Context, companyID uuid.UUID, number string) (*entity.JournalEntry, error)
 	GetByPeriod(ctx context.Context, periodID uuid.UUID) ([]entity.JournalEntry, error)
 	GetByDateRange(ctx context.Context, companyID uuid.UUID, start, end time.Time) ([]entity.JournalEntry, error)
+	GetByStatus(ctx context.Context, companyID uuid.UUID, status entity.JournalStatus) ([]entity.JournalEntry, error)
 	Update(ctx context.Context, journal *entity.JournalEntry) error
 	CountByYear(ctx context.Context, companyID uuid.UUID, year int) (int, error)
 
