@@ -193,3 +193,65 @@ func (uc *JournalUsecase) ReverseJournal(ctx context.Context, id, userID uuid.UU
 
 	return reversal, nil
 }
+
+// Default approval threshold (can be configured per company)
+var DefaultApprovalThreshold = decimal.NewFromInt(10000000) // 10 juta
+
+// SubmitForApproval submits a journal for approval if it exceeds threshold
+func (uc *JournalUsecase) SubmitForApproval(ctx context.Context, id, userID uuid.UUID) (*entity.JournalEntry, error) {
+	journal, err := uc.journalRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := journal.SubmitForApproval(); err != nil {
+		return nil, err
+	}
+
+	if err := uc.journalRepo.Update(ctx, journal); err != nil {
+		return nil, err
+	}
+
+	return journal, nil
+}
+
+// ApproveJournal approves a pending journal
+func (uc *JournalUsecase) ApproveJournal(ctx context.Context, id, approverID uuid.UUID) (*entity.JournalEntry, error) {
+	journal, err := uc.journalRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := journal.Approve(approverID); err != nil {
+		return nil, err
+	}
+
+	if err := uc.journalRepo.Update(ctx, journal); err != nil {
+		return nil, err
+	}
+
+	return journal, nil
+}
+
+// RejectJournal rejects a pending journal with reason
+func (uc *JournalUsecase) RejectJournal(ctx context.Context, id, rejectorID uuid.UUID, reason string) (*entity.JournalEntry, error) {
+	journal, err := uc.journalRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := journal.Reject(rejectorID, reason); err != nil {
+		return nil, err
+	}
+
+	if err := uc.journalRepo.Update(ctx, journal); err != nil {
+		return nil, err
+	}
+
+	return journal, nil
+}
+
+// GetPendingApprovals returns journals awaiting approval
+func (uc *JournalUsecase) GetPendingApprovals(ctx context.Context, companyID uuid.UUID) ([]entity.JournalEntry, error) {
+	return uc.journalRepo.GetByStatus(ctx, companyID, entity.JournalStatusPendingApproval)
+}

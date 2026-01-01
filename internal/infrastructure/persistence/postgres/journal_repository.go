@@ -132,6 +132,13 @@ func (r *JournalRepository) GetByDateRange(ctx context.Context, companyID uuid.U
 	)
 }
 
+func (r *JournalRepository) GetByStatus(ctx context.Context, companyID uuid.UUID, status entity.JournalStatus) ([]entity.JournalEntry, error) {
+	return r.getJournalsWithLines(ctx,
+		`WHERE j.company_id = $1 AND j.status = $2 ORDER BY j.created_at DESC, jl.line_number`,
+		companyID, status,
+	)
+}
+
 // getJournalsWithLines fetches journals with their lines in a single query (fixes N+1)
 func (r *JournalRepository) getJournalsWithLines(ctx context.Context, whereClause string, args ...interface{}) ([]entity.JournalEntry, error) {
 	query := `
