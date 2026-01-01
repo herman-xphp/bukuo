@@ -17,16 +17,17 @@ const (
 )
 
 type Account struct {
-	ID         uuid.UUID   `json:"id"`
-	CompanyID  uuid.UUID   `json:"company_id"`
-	Code       string      `json:"code"` // "1-1100"
-	Name       string      `json:"name"` // "Kas"
-	Type       AccountType `json:"type"`
-	ParentID   *uuid.UUID  `json:"parent_id"`
-	IsPostable bool        `json:"is_postable"` // bisa diposting?
-	IsActive   bool        `json:"is_active"`
-	CreatedAt  time.Time   `json:"created_at"`
-	UpdatedAt  time.Time   `json:"updated_at"`
+	ID          uuid.UUID   `json:"id"`
+	CompanyID   uuid.UUID   `json:"company_id"`
+	Code        string      `json:"code"` // "1-1100"
+	Name        string      `json:"name"` // "Kas"
+	Type        AccountType `json:"type"`
+	ParentID    *uuid.UUID  `json:"parent_id"`
+	IsPostable  bool        `json:"is_postable"` // bisa diposting?
+	IsActive    bool        `json:"is_active"`
+	Description string      `json:"description"`
+	CreatedAt   time.Time   `json:"created_at"`
+	UpdatedAt   time.Time   `json:"updated_at"`
 }
 
 // NormalBalance - Debit atau Credit?
