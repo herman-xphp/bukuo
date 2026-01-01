@@ -17,6 +17,7 @@ import (
 	"github.com/herman-xphp/bukuo/internal/infrastructure/persistence/postgres"
 	accountUC "github.com/herman-xphp/bukuo/internal/usecase/account"
 	authUC "github.com/herman-xphp/bukuo/internal/usecase/auth"
+	closingUC "github.com/herman-xphp/bukuo/internal/usecase/closing"
 	journalUC "github.com/herman-xphp/bukuo/internal/usecase/journal"
 	periodUC "github.com/herman-xphp/bukuo/internal/usecase/period"
 	reportUC "github.com/herman-xphp/bukuo/internal/usecase/report"
@@ -75,6 +76,7 @@ func main() {
 	periodUsecase := periodUC.NewPeriodUsecase(periodRepo)
 	journalUsecase := journalUC.NewJournalUsecase(journalRepo, accountRepo, periodRepo)
 	reportUsecase := reportUC.NewReportUsecase(journalRepo, accountRepo, periodRepo)
+	closingUsecase := closingUC.NewClosingUsecase(journalRepo, accountRepo, periodRepo)
 
 	// Delivery Layer - HTTP Handlers
 	handlers := &httpDelivery.Handlers{
@@ -84,6 +86,7 @@ func main() {
 		Period:  handler.NewPeriodHandler(periodUsecase),
 		Journal: handler.NewJournalHandler(journalUsecase),
 		Report:  handler.NewReportHandler(reportUsecase),
+		Closing: handler.NewClosingHandler(closingUsecase),
 	}
 
 	// Middleware
