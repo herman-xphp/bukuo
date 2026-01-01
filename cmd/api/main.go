@@ -2,8 +2,12 @@ package main
 
 import (
 	"log"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
+
 	"github.com/herman-xphp/bukuo/internal/config"
 	"github.com/herman-xphp/bukuo/internal/database"
 	httpDelivery "github.com/herman-xphp/bukuo/internal/delivery/http"
@@ -15,7 +19,28 @@ import (
 	journalUC "github.com/herman-xphp/bukuo/internal/usecase/journal"
 	periodUC "github.com/herman-xphp/bukuo/internal/usecase/period"
 	reportUC "github.com/herman-xphp/bukuo/internal/usecase/report"
+
+	_ "github.com/herman-xphp/bukuo/docs" // Swagger docs
 )
+
+// @title Bukuo API
+// @version 1.0
+// @description Financial Accounting Platform API
+// @termsOfService http://swagger.io/terms/
+
+// @contact.name API Support
+// @contact.email support@bukuo.id
+
+// @license.name MIT
+// @license.url https://opensource.org/licenses/MIT
+
+// @host localhost:8080
+// @BasePath /
+
+// @securityDefinitions.apikey BearerAuth
+// @in header
+// @name Authorization
+// @description Enter: Bearer {token}
 
 func main() {
 	// Load config
@@ -61,6 +86,7 @@ func main() {
 
 	// Middleware
 	authMiddleware := middleware.NewAuthMiddleware(jwtService)
+	rateLimiter := middleware.NewRateLimiter(100, time.Minute) // 100 req/min
 
 	// ============================================
 	// ROUTER SETUP
@@ -69,16 +95,26 @@ func main() {
 	if cfg.Server.Env == "production" {
 		gin.SetMode(gin.ReleaseMode)
 	}
-	r := gin.Default()
+	r := gin.New()
 
-	// CORS middleware
+	// Global middleware
+	r.Use(gin.Logger())
+	r.Use(middleware.RecoveryHandler())
 	r.Use(corsMiddleware())
+	r.Use(rateLimiter.RateLimitMiddleware())
+
+	// 404 handler
+	r.NoRoute(middleware.NotFoundHandler())
+
+	// Swagger
+	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
 	// Setup routes with injected dependencies
 	httpDelivery.SetupRouter(r, handlers, authMiddleware)
 
 	// Start server
 	log.Printf("🚀 Bukuo running on port %s", cfg.Server.Port)
+	log.Printf("📚 Swagger: http://localhost:%s/swagger/index.html", cfg.Server.Port)
 	if err := r.Run(":" + cfg.Server.Port); err != nil {
 		log.Fatal(err)
 	}

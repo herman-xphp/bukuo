@@ -1,0 +1,21 @@
+basePath: /
+host: localhost:8080
+info:
+  contact:
+    email: support@bukuo.id
+    name: API Support
+  description: Financial Accounting Platform API
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+  termsOfService: http://swagger.io/terms/
+  title: Bukuo API
+  version: "1.0"
+paths: {}
+securityDefinitions:
+  BearerAuth:
+    description: 'Enter: Bearer {token}'
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"
