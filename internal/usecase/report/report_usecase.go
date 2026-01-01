@@ -296,3 +296,180 @@ func (uc *ReportUsecase) GetIncomeStatement(ctx context.Context, companyID uuid.
 		NetIncome:    totalRevenue.Sub(totalExpense),
 	}, nil
 }
+
+// BalanceSheetItem represents a line in balance sheet
+type BalanceSheetItem struct {
+	AccountCode string          `json:"account_code"`
+	AccountName string          `json:"account_name"`
+	Balance     decimal.Decimal `json:"balance"`
+}
+
+// BalanceSheet represents the balance sheet (Neraca)
+type BalanceSheet struct {
+	CompanyID        uuid.UUID          `json:"company_id"`
+	AsOfDate         time.Time          `json:"as_of_date"`
+	Assets           []BalanceSheetItem `json:"assets"`
+	Liabilities      []BalanceSheetItem `json:"liabilities"`
+	Equity           []BalanceSheetItem `json:"equity"`
+	TotalAssets      decimal.Decimal    `json:"total_assets"`
+	TotalLiabilities decimal.Decimal    `json:"total_liabilities"`
+	TotalEquity      decimal.Decimal    `json:"total_equity"`
+	IsBalanced       bool               `json:"is_balanced"`
+}
+
+// GetBalanceSheet generates balance sheet as of a date
+func (uc *ReportUsecase) GetBalanceSheet(ctx context.Context, companyID uuid.UUID, asOfDate time.Time) (*BalanceSheet, error) {
+	journals, err := uc.journalRepo.GetByDateRange(ctx, companyID, time.Time{}, asOfDate)
+	if err != nil {
+		return nil, err
+	}
+
+	accounts, err := uc.accountRepo.GetByCompany(ctx, companyID)
+	if err != nil {
+		return nil, err
+	}
+
+	accountMap := make(map[uuid.UUID]*entity.Account)
+	for i := range accounts {
+		accountMap[accounts[i].ID] = &accounts[i]
+	}
+
+	// Calculate balances
+	balances := make(map[uuid.UUID]decimal.Decimal)
+	for _, journal := range journals {
+		if journal.Status != entity.JournalStatusPosted {
+			continue
+		}
+		for _, line := range journal.Lines {
+			acc := accountMap[line.AccountID]
+			if acc == nil {
+				continue
+			}
+			// Asset/Expense: Debit increases, Credit decreases
+			// Liability/Equity/Revenue: Credit increases, Debit decreases
+			if acc.Type == entity.AccountTypeAsset || acc.Type == entity.AccountTypeExpense {
+				balances[line.AccountID] = balances[line.AccountID].Add(line.DebitAmount).Sub(line.CreditAmount)
+			} else {
+				balances[line.AccountID] = balances[line.AccountID].Add(line.CreditAmount).Sub(line.DebitAmount)
+			}
+		}
+	}
+
+	var assets, liabilities, equity []BalanceSheetItem
+	totalAssets := decimal.Zero
+	totalLiabilities := decimal.Zero
+	totalEquity := decimal.Zero
+
+	for id, balance := range balances {
+		acc := accountMap[id]
+		if acc == nil {
+			continue
+		}
+		item := BalanceSheetItem{
+			AccountCode: acc.Code,
+			AccountName: acc.Name,
+			Balance:     balance,
+		}
+		switch acc.Type {
+		case entity.AccountTypeAsset:
+			assets = append(assets, item)
+			totalAssets = totalAssets.Add(balance)
+		case entity.AccountTypeLiability:
+			liabilities = append(liabilities, item)
+			totalLiabilities = totalLiabilities.Add(balance)
+		case entity.AccountTypeEquity:
+			equity = append(equity, item)
+			totalEquity = totalEquity.Add(balance)
+		}
+	}
+
+	return &BalanceSheet{
+		CompanyID:        companyID,
+		AsOfDate:         asOfDate,
+		Assets:           assets,
+		Liabilities:      liabilities,
+		Equity:           equity,
+		TotalAssets:      totalAssets,
+		TotalLiabilities: totalLiabilities,
+		TotalEquity:      totalEquity,
+		IsBalanced:       totalAssets.Equal(totalLiabilities.Add(totalEquity)),
+	}, nil
+}
+
+// CashFlowItem represents a line in cash flow
+type CashFlowItem struct {
+	Description string          `json:"description"`
+	Amount      decimal.Decimal `json:"amount"`
+}
+
+// CashFlow represents the cash flow statement
+type CashFlow struct {
+	CompanyID      uuid.UUID       `json:"company_id"`
+	StartDate      time.Time       `json:"start_date"`
+	EndDate        time.Time       `json:"end_date"`
+	Operating      []CashFlowItem  `json:"operating"`
+	TotalOperating decimal.Decimal `json:"total_operating"`
+	Investing      []CashFlowItem  `json:"investing"`
+	TotalInvesting decimal.Decimal `json:"total_investing"`
+	Financing      []CashFlowItem  `json:"financing"`
+	TotalFinancing decimal.Decimal `json:"total_financing"`
+	NetCashChange  decimal.Decimal `json:"net_cash_change"`
+}
+
+// GetCashFlow generates cash flow statement (simplified)
+func (uc *ReportUsecase) GetCashFlow(ctx context.Context, companyID uuid.UUID, start, end time.Time) (*CashFlow, error) {
+	journals, err := uc.journalRepo.GetByDateRange(ctx, companyID, start, end)
+	if err != nil {
+		return nil, err
+	}
+
+	accounts, err := uc.accountRepo.GetByCompany(ctx, companyID)
+	if err != nil {
+		return nil, err
+	}
+
+	accountMap := make(map[uuid.UUID]*entity.Account)
+	for i := range accounts {
+		accountMap[accounts[i].ID] = &accounts[i]
+	}
+
+	// Calculate changes for cash accounts
+	operating := []CashFlowItem{}
+	totalOperating := decimal.Zero
+
+	for _, journal := range journals {
+		if journal.Status != entity.JournalStatusPosted {
+			continue
+		}
+		for _, line := range journal.Lines {
+			acc := accountMap[line.AccountID]
+			if acc == nil {
+				continue
+			}
+			// Simple: track cash account movements
+			if acc.Code[:1] == "1" && (acc.Name == "Kas" || acc.Name == "Bank") {
+				amount := line.DebitAmount.Sub(line.CreditAmount)
+				if !amount.IsZero() {
+					operating = append(operating, CashFlowItem{
+						Description: journal.Description,
+						Amount:      amount,
+					})
+					totalOperating = totalOperating.Add(amount)
+				}
+			}
+		}
+	}
+
+	return &CashFlow{
+		CompanyID:      companyID,
+		StartDate:      start,
+		EndDate:        end,
+		Operating:      operating,
+		TotalOperating: totalOperating,
+		Investing:      []CashFlowItem{},
+		TotalInvesting: decimal.Zero,
+		Financing:      []CashFlowItem{},
+		TotalFinancing: decimal.Zero,
+		NetCashChange:  totalOperating,
+	}, nil
+}

@@ -132,3 +132,34 @@ func (h *JournalHandler) Post(c *gin.Context) {
 		"data":    result,
 	})
 }
+
+// Reverse handles POST /journals/:id/reverse
+func (h *JournalHandler) Reverse(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid journal id"})
+		return
+	}
+
+	var req struct {
+		ReversalDate string `json:"reversal_date" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	reversalDate, _ := time.Parse("2006-01-02", req.ReversalDate)
+	userID, _ := uuid.Parse(c.GetString("user_id"))
+
+	result, err := h.usecase.ReverseJournal(c.Request.Context(), id, userID, reversalDate)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{
+		"message": "Journal reversed successfully",
+		"data":    result,
+	})
+}

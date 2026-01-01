@@ -139,3 +139,61 @@ func (uc *JournalUsecase) GetByPeriod(ctx context.Context, periodID uuid.UUID) (
 func (uc *JournalUsecase) GetByDateRange(ctx context.Context, companyID uuid.UUID, start, end time.Time) ([]entity.JournalEntry, error) {
 	return uc.journalRepo.GetByDateRange(ctx, companyID, start, end)
 }
+
+// ReverseJournal creates a reversal entry for a posted journal
+func (uc *JournalUsecase) ReverseJournal(ctx context.Context, id, userID uuid.UUID, reversalDate time.Time) (*entity.JournalEntry, error) {
+	// 1. Get original journal
+	original, err := uc.journalRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	// 2. Verify it can be reversed
+	if !original.CanReverse() {
+		return nil, fmt.Errorf("journal cannot be reversed, status: %s", original.Status)
+	}
+
+	// 3. Get period for reversal date
+	period, err := uc.periodRepo.GetByDate(ctx, original.CompanyID, reversalDate)
+	if err != nil {
+		return nil, fmt.Errorf("period not found for reversal date: %w", err)
+	}
+
+	if err := period.CanPost(); err != nil {
+		return nil, err
+	}
+
+	// 4. Create reversal journal (swap debit/credit)
+	reversal := entity.NewJournalEntry(
+		original.CompanyID,
+		period.ID,
+		userID,
+		reversalDate,
+		fmt.Sprintf("Reversal of %s: %s", original.EntryNumber, original.Description),
+	)
+	reversal.SourceType = "REVERSAL"
+	reversal.SourceID = &original.ID
+
+	// 5. Add reversed lines (swap debit and credit)
+	for _, line := range original.Lines {
+		reversal.AddLine(line.AccountID, line.Description, line.CreditAmount, line.DebitAmount)
+	}
+
+	// 6. Generate entry number
+	count, _ := uc.journalRepo.CountByYear(ctx, original.CompanyID, reversalDate.Year())
+	reversal.EntryNumber = fmt.Sprintf("JE-%d-%04d", reversalDate.Year(), count+1)
+
+	// 7. Auto-post the reversal
+	reversal.Post(userID)
+
+	// 8. Save reversal
+	if err := uc.journalRepo.Create(ctx, reversal); err != nil {
+		return nil, err
+	}
+
+	// 9. Update original status to REVERSED
+	original.Status = entity.JournalStatusReversed
+	uc.journalRepo.Update(ctx, original)
+
+	return reversal, nil
+}

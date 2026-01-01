@@ -89,3 +89,46 @@ func (h *ReportHandler) IncomeStatement(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"data": result})
 }
+
+// BalanceSheet handles GET /reports/balance-sheet
+func (h *ReportHandler) BalanceSheet(c *gin.Context) {
+	companyID, _ := uuid.Parse(c.GetString("company_id"))
+	dateStr := c.Query("as_of_date")
+
+	asOfDate, _ := time.Parse("2006-01-02", dateStr)
+	if asOfDate.IsZero() {
+		asOfDate = time.Now()
+	}
+
+	result, err := h.usecase.GetBalanceSheet(c.Request.Context(), companyID, asOfDate)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": result})
+}
+
+// CashFlow handles GET /reports/cash-flow
+func (h *ReportHandler) CashFlow(c *gin.Context) {
+	companyID, _ := uuid.Parse(c.GetString("company_id"))
+
+	startStr := c.Query("start_date")
+	endStr := c.Query("end_date")
+
+	start, _ := time.Parse("2006-01-02", startStr)
+	end, _ := time.Parse("2006-01-02", endStr)
+
+	if start.IsZero() || end.IsZero() {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "start_date and end_date required"})
+		return
+	}
+
+	result, err := h.usecase.GetCashFlow(c.Request.Context(), companyID, start, end)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": result})
+}

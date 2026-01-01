@@ -61,6 +61,7 @@ func SetupRouter(r *gin.Engine, h *Handlers, authMW *middleware.AuthMiddleware) 
 			journals.POST("", h.Journal.Create)
 			journals.GET("/:id", h.Journal.GetByID)
 			journals.POST("/:id/post", h.Journal.Post)
+			journals.POST("/:id/reverse", h.Journal.Reverse)
 		}
 
 		// Reports
@@ -69,6 +70,8 @@ func SetupRouter(r *gin.Engine, h *Handlers, authMW *middleware.AuthMiddleware) 
 			reports.GET("/trial-balance", h.Report.TrialBalance)
 			reports.GET("/ledger/:account_id", h.Report.GeneralLedger)
 			reports.GET("/income-statement", h.Report.IncomeStatement)
+			reports.GET("/balance-sheet", h.Report.BalanceSheet)
+			reports.GET("/cash-flow", h.Report.CashFlow)
 		}
 	}
 }
