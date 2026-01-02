@@ -26,6 +26,7 @@ import (
 	contactUC "github.com/herman-xphp/bukuo/internal/usecase/contact"
 	currencyUC "github.com/herman-xphp/bukuo/internal/usecase/currency"
 	exchangerateUC "github.com/herman-xphp/bukuo/internal/usecase/exchangerate"
+	inventoryUC "github.com/herman-xphp/bukuo/internal/usecase/inventory"
 	journalUC "github.com/herman-xphp/bukuo/internal/usecase/journal"
 	openingUC "github.com/herman-xphp/bukuo/internal/usecase/opening"
 	periodUC "github.com/herman-xphp/bukuo/internal/usecase/period"
@@ -33,6 +34,7 @@ import (
 	reportUC "github.com/herman-xphp/bukuo/internal/usecase/report"
 	unitUC "github.com/herman-xphp/bukuo/internal/usecase/unit"
 	userUC "github.com/herman-xphp/bukuo/internal/usecase/user"
+	warehouseUC "github.com/herman-xphp/bukuo/internal/usecase/warehouse"
 
 	_ "github.com/herman-xphp/bukuo/docs" // Swagger docs
 )
@@ -101,6 +103,8 @@ func main() {
 	productRepo := postgres.NewProductRepository(db)
 	currencyRepo := postgres.NewCurrencyRepository(db)
 	exchangeRateRepo := postgres.NewExchangeRateRepository(db)
+	warehouseRepo := postgres.NewWarehouseRepository(db)
+	inventoryRepo := postgres.NewInventoryRepository(db)
 
 	// JWT Service
 	jwtService := authUC.NewJWTService(cfg.JWT.Secret, cfg.JWT.Expiry)
@@ -120,6 +124,8 @@ func main() {
 	productUsecase := productUC.NewProductUsecase(productRepo)
 	currencyUsecase := currencyUC.NewCurrencyUsecase(currencyRepo)
 	exchangerateUsecase := exchangerateUC.NewExchangeRateUsecase(exchangeRateRepo, currencyRepo)
+	warehouseUsecase := warehouseUC.NewWarehouseUsecase(warehouseRepo)
+	inventoryUsecase := inventoryUC.NewInventoryUsecase(inventoryRepo, warehouseRepo, productRepo)
 
 	// Delivery Layer - HTTP Handlers
 	handlers := &httpDelivery.Handlers{
@@ -138,6 +144,8 @@ func main() {
 		Product:      handler.NewProductHandler(productUsecase),
 		Currency:     handler.NewCurrencyHandler(currencyUsecase),
 		ExchangeRate: handler.NewExchangeRateHandler(exchangerateUsecase),
+		Warehouse:    handler.NewWarehouseHandler(warehouseUsecase),
+		Inventory:    handler.NewInventoryHandler(inventoryUsecase),
 	}
 
 	// Middleware
