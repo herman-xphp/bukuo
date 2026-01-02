@@ -1,0 +1,131 @@
+@baseUrl = http://localhost:8080/api/v1
+@contentType = application/json
+@email = admin@bukuo.id
+@password = password123
+
+# ==========================================
+# 1. AUTHENTICATION
+# ==========================================
+
+### Login (Get Token)
+# @name login
+POST {{baseUrl}}/auth/login
+Content-Type: {{contentType}}
+
+{
+    "email": "{{email}}",
+    "password": "{{password}}"
+}
+
+### Store Token
+@token = {{login.response.body.data.token}}
+
+### Get User Profile
+GET {{baseUrl}}/users/profile
+Authorization: Bearer {{token}}
+
+# ==========================================
+# 2. MASTER DATA
+# ==========================================
+
+### List Contacts
+GET {{baseUrl}}/contacts
+Authorization: Bearer {{token}}
+
+### Create Product
+POST {{baseUrl}}/products
+Authorization: Bearer {{token}}
+Content-Type: {{contentType}}
+
+{
+    "name": "MacBook Pro M3",
+    "code": "MBP-M3-001",
+    "type": "GOODS",
+    "category_id": "REPLACE_WITH_UUID",
+    "unit_id": "REPLACE_WITH_UUID",
+    "buy_price": 25000000,
+    "sell_price": 30000000
+}
+
+# ==========================================
+# 3. MULTI-CURRENCY
+# ==========================================
+
+### List Currencies
+GET {{baseUrl}}/currencies
+Authorization: Bearer {{token}}
+
+### Get Exchange Rates
+GET {{baseUrl}}/exchange-rates
+Authorization: Bearer {{token}}
+
+# ==========================================
+# 4. INVENTORY
+# ==========================================
+
+### List Warehouses
+GET {{baseUrl}}/warehouses
+Authorization: Bearer {{token}}
+
+### Create Warehouse
+POST {{baseUrl}}/warehouses
+Authorization: Bearer {{token}}
+Content-Type: {{contentType}}
+
+{
+    "code": "WH-JKT",
+    "name": "Jakarta Main Warehouse",
+    "address": "Jl. Sudirman No. 1",
+    "is_default": true
+}
+
+### Stock In (Adjustment)
+POST {{baseUrl}}/inventory/stock-in
+Authorization: Bearer {{token}}
+Content-Type: {{contentType}}
+
+{
+    "warehouse_id": "REPLACE_WITH_UUID",
+    "product_id": "REPLACE_WITH_UUID",
+    "quantity": 100,
+    "unit_cost": 25000000,
+    "notes": "Initial Stock"
+}
+
+# ==========================================
+# 5. SALES
+# ==========================================
+
+### Create Sales Invoice
+POST {{baseUrl}}/sales/invoices
+Authorization: Bearer {{token}}
+Content-Type: {{contentType}}
+
+{
+    "invoice_no": "INV/2024/001",
+    "customer_id": "REPLACE_WITH_UUID",
+    "invoice_date": "2024-01-25",
+    "due_date": "2024-02-25",
+    "lines": [
+        {
+            "product_id": "REPLACE_WITH_UUID",
+            "quantity": "2",
+            "unit_price": "30000000",
+            "discount_pct": "0",
+            "tax_pct": "11"
+        }
+    ],
+    "notes": "First sale"
+}
+
+### List Invoices
+GET {{baseUrl}}/sales/invoices
+Authorization: Bearer {{token}}
+
+# ==========================================
+# 6. REPORTS
+# ==========================================
+
+### Get Balance Sheet
+GET {{baseUrl}}/reports/balance-sheet
+Authorization: Bearer {{token}}
