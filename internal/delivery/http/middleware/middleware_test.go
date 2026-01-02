@@ -73,7 +73,7 @@ func TestRecoveryHandler(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	router := gin.New()
-	router.Use(RecoveryHandler())
+	router.Use(RecoveryHandler("test"))
 	router.GET("/panic", func(c *gin.Context) {
 		panic("test panic")
 	})
