@@ -53,9 +53,57 @@ func (uc *PeriodUsecase) GetByCompany(ctx context.Context, companyID uuid.UUID) 
 	return uc.periodRepo.GetByCompany(ctx, companyID)
 }
 
+func (uc *PeriodUsecase) List(ctx context.Context, companyID uuid.UUID, limit, offset int, search string) ([]entity.AccountingPeriod, int, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	periods, err := uc.periodRepo.List(ctx, companyID, limit, offset, search)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	total, err := uc.periodRepo.Count(ctx, companyID, search)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return periods, total, nil
+}
+
 // GetOpenPeriods retrieves open periods for a company
 func (uc *PeriodUsecase) GetOpenPeriods(ctx context.Context, companyID uuid.UUID) ([]entity.AccountingPeriod, error) {
 	return uc.periodRepo.GetOpenPeriods(ctx, companyID)
+}
+
+// UpdatePeriod updates an existing accounting period
+func (uc *PeriodUsecase) UpdatePeriod(ctx context.Context, id uuid.UUID, input CreatePeriodInput) (*entity.AccountingPeriod, error) {
+	period, err := uc.periodRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	if input.EndDate.Before(input.StartDate) {
+		return nil, fmt.Errorf("end date must be after start date")
+	}
+
+	period.Name = input.Name
+	period.StartDate = input.StartDate
+	period.EndDate = input.EndDate
+
+	if err := uc.periodRepo.Update(ctx, period); err != nil {
+		return nil, fmt.Errorf("failed to update period: %w", err)
+	}
+
+	return period, nil
+}
+
+// DeletePeriod deletes an accounting period
+func (uc *PeriodUsecase) DeletePeriod(ctx context.Context, id uuid.UUID) error {
+	return uc.periodRepo.Delete(ctx, id)
 }
 
 // ClosePeriod closes an accounting period

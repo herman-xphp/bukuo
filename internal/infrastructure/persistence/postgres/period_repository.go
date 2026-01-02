@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -123,11 +124,70 @@ func (r *PeriodRepository) GetOpenPeriods(ctx context.Context, companyID uuid.UU
 func (r *PeriodRepository) Update(ctx context.Context, period *entity.AccountingPeriod) error {
 	query := `
 		UPDATE accounting_periods 
-		SET status = $2, closed_at = $3, closed_by = $4
+		SET name = $2, start_date = $3, end_date = $4, status = $5, closed_at = $6, closed_by = $7
 		WHERE id = $1
 	`
 	_, err := r.db.Exec(ctx, query,
-		period.ID, period.Status, period.ClosedAt, period.ClosedBy,
+		period.ID, period.Name, period.StartDate, period.EndDate,
+		period.Status, period.ClosedAt, period.ClosedBy,
 	)
 	return err
+}
+
+func (r *PeriodRepository) Delete(ctx context.Context, id uuid.UUID) error {
+	query := `DELETE FROM accounting_periods WHERE id = $1`
+	_, err := r.db.Exec(ctx, query, id)
+	return err
+}
+
+func (r *PeriodRepository) List(ctx context.Context, companyID uuid.UUID, limit, offset int, search string) ([]entity.AccountingPeriod, error) {
+	whereClause := `WHERE company_id = $1`
+	args := []interface{}{companyID}
+
+	if search != "" {
+		whereClause += fmt.Sprintf(` AND (name ILIKE $%d OR status ILIKE $%d)`, len(args)+1, len(args)+1)
+		args = append(args, "%"+search+"%")
+	}
+
+	query := fmt.Sprintf(`
+		SELECT id, company_id, name, start_date, end_date, status, closed_at, closed_by, created_at
+		FROM accounting_periods %s ORDER BY start_date DESC LIMIT $%d OFFSET $%d
+	`, whereClause, len(args)+1, len(args)+2)
+
+	args = append(args, limit, offset)
+
+	rows, err := r.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var periods []entity.AccountingPeriod
+	for rows.Next() {
+		var p entity.AccountingPeriod
+		err := rows.Scan(
+			&p.ID, &p.CompanyID, &p.Name, &p.StartDate, &p.EndDate,
+			&p.Status, &p.ClosedAt, &p.ClosedBy, &p.CreatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		periods = append(periods, p)
+	}
+	return periods, nil
+}
+
+func (r *PeriodRepository) Count(ctx context.Context, companyID uuid.UUID, search string) (int, error) {
+	whereClause := `WHERE company_id = $1`
+	args := []interface{}{companyID}
+
+	if search != "" {
+		whereClause += fmt.Sprintf(` AND (name ILIKE $%d OR status ILIKE $%d)`, len(args)+1, len(args)+1)
+		args = append(args, "%"+search+"%")
+	}
+
+	query := fmt.Sprintf(`SELECT COUNT(*) FROM accounting_periods %s`, whereClause)
+	var count int
+	err := r.db.QueryRow(ctx, query, args...).Scan(&count)
+	return count, err
 }

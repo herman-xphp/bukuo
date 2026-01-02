@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -139,6 +140,128 @@ func (r *JournalRepository) GetByStatus(ctx context.Context, companyID uuid.UUID
 	)
 }
 
+func (r *JournalRepository) GetByCompany(ctx context.Context, companyID uuid.UUID, limit, offset int, search string) ([]entity.JournalEntry, error) {
+	// Build WHERE clause
+	whereClause := `WHERE company_id = $1`
+	args := []interface{}{companyID}
+
+	if search != "" {
+		whereClause += fmt.Sprintf(` AND (description ILIKE $%d OR entry_number ILIKE $%d)`, len(args)+1, len(args)+1)
+		args = append(args, "%"+search+"%")
+	}
+
+	// Use a subquery to handle LIMIT/OFFSET properly with the LEFT JOIN
+	query := fmt.Sprintf(`
+		SELECT 
+			j.id, j.company_id, j.period_id, j.entry_number, j.entry_date, 
+			j.description, j.status, j.source_type, j.source_id, 
+			j.created_by, j.created_at, j.posted_at, j.posted_by,
+			jl.id, jl.line_number, jl.account_id, jl.description, 
+			jl.debit_amount, jl.credit_amount
+		FROM (
+			SELECT * FROM journal_entries 
+			%s 
+			ORDER BY created_at DESC 
+			LIMIT $%d OFFSET $%d
+		) j
+		LEFT JOIN journal_lines jl ON j.id = jl.journal_id
+		ORDER BY j.created_at DESC, jl.line_number
+	`, whereClause, len(args)+1, len(args)+2)
+
+	args = append(args, limit, offset)
+
+	rows, err := r.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	// Map to aggregate lines by journal
+	journalMap := make(map[uuid.UUID]*entity.JournalEntry)
+	var journalOrder []uuid.UUID
+
+	for rows.Next() {
+		var j entity.JournalEntry
+		var lineID, lineAccountID *uuid.UUID
+		var lineNumber *int
+		var lineDesc *string
+		var lineDebit, lineCredit *string
+
+		err := rows.Scan(
+			&j.ID, &j.CompanyID, &j.PeriodID, &j.EntryNumber, &j.EntryDate,
+			&j.Description, &j.Status, &j.SourceType, &j.SourceID,
+			&j.CreatedBy, &j.CreatedAt, &j.PostedAt, &j.PostedBy,
+			&lineID, &lineNumber, &lineAccountID, &lineDesc,
+			&lineDebit, &lineCredit,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Get or create journal in map
+		existing, ok := journalMap[j.ID]
+		if !ok {
+			j.Lines = make([]entity.JournalLine, 0)
+			journalMap[j.ID] = &j
+			journalOrder = append(journalOrder, j.ID)
+			existing = &j
+		}
+
+		// Add line if exists (LEFT JOIN may have null lines)
+		if lineID != nil {
+			line := entity.JournalLine{
+				ID:          *lineID,
+				JournalID:   j.ID,
+				LineNumber:  *lineNumber,
+				AccountID:   *lineAccountID,
+				Description: *lineDesc,
+			}
+			if lineDebit != nil {
+				line.DebitAmount, _ = decimal.NewFromString(*lineDebit)
+			}
+			if lineCredit != nil {
+				line.CreditAmount, _ = decimal.NewFromString(*lineCredit)
+			}
+			existing.Lines = append(existing.Lines, line)
+		}
+	}
+
+	// Convert map to slice maintaining order
+	journals := make([]entity.JournalEntry, 0, len(journalOrder))
+	for _, id := range journalOrder {
+		journals = append(journals, *journalMap[id])
+	}
+
+	return journals, nil
+}
+
+func (r *JournalRepository) Count(ctx context.Context, companyID uuid.UUID, search string) (int, error) {
+	whereClause := `WHERE company_id = $1`
+	args := []interface{}{companyID}
+
+	if search != "" {
+		whereClause += fmt.Sprintf(` AND (description ILIKE $%d OR entry_number ILIKE $%d)`, len(args)+1, len(args)+1)
+		args = append(args, "%"+search+"%")
+	}
+
+	query := fmt.Sprintf(`SELECT COUNT(*) FROM journal_entries %s`, whereClause)
+	var count int
+	err := r.db.QueryRow(ctx, query, args...).Scan(&count)
+	return count, err
+}
+
+func (r *JournalRepository) GetBalance(ctx context.Context, accountID uuid.UUID) (decimal.Decimal, error) {
+	query := `
+		SELECT COALESCE(SUM(jl.debit_amount - jl.credit_amount), 0)
+		FROM journal_lines jl
+		JOIN journal_entries j ON jl.journal_id = j.id
+		WHERE jl.account_id = $1 AND j.status = 'POSTED'
+	`
+	var balance decimal.Decimal
+	err := r.db.QueryRow(ctx, query, accountID).Scan(&balance)
+	return balance, err
+}
+
 // getJournalsWithLines fetches journals with their lines in a single query (fixes N+1)
 func (r *JournalRepository) getJournalsWithLines(ctx context.Context, whereClause string, args ...interface{}) ([]entity.JournalEntry, error) {
 	query := `
@@ -227,6 +350,50 @@ func (r *JournalRepository) Update(ctx context.Context, journal *entity.JournalE
 		journal.ID, journal.Status, journal.PostedAt, journal.PostedBy,
 	)
 	return err
+}
+
+func (r *JournalRepository) UpdateDetails(ctx context.Context, journal *entity.JournalEntry) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	// 1. Update Header
+	headerQuery := `
+		UPDATE journal_entries 
+		SET description = $2, entry_date = $3
+		WHERE id = $1
+	`
+	_, err = tx.Exec(ctx, headerQuery, journal.ID, journal.Description, journal.EntryDate)
+	if err != nil {
+		return err
+	}
+
+	// 2. Delete existing lines
+	deleteQuery := `DELETE FROM journal_lines WHERE journal_id = $1`
+	_, err = tx.Exec(ctx, deleteQuery, journal.ID)
+	if err != nil {
+		return err
+	}
+
+	// 3. Insert new lines
+	lineQuery := `
+		INSERT INTO journal_lines 
+		(id, journal_id, line_number, account_id, description, debit_amount, credit_amount)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+	`
+	for _, line := range journal.Lines {
+		_, err = tx.Exec(ctx, lineQuery,
+			line.ID, journal.ID, line.LineNumber, line.AccountID,
+			line.Description, line.DebitAmount, line.CreditAmount,
+		)
+		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit(ctx)
 }
 
 func (r *JournalRepository) CountByYear(ctx context.Context, companyID uuid.UUID, year int) (int, error) {

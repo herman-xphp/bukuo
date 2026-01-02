@@ -110,6 +110,90 @@ func (uc *JournalUsecase) CreateJournal(ctx context.Context, input CreateJournal
 	return journal, nil
 }
 
+// UpdateJournal updates an existing draft journal
+func (uc *JournalUsecase) UpdateJournal(ctx context.Context, id uuid.UUID, input CreateJournalInput) (*entity.JournalEntry, error) {
+	// 1. Get existing journal
+	journal, err := uc.journalRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	// 2. Validate status is DRAFT
+	if journal.Status != entity.JournalStatusDraft {
+		return nil, fmt.Errorf("journal cannot be edited, status is %s", journal.Status)
+	}
+
+	// 3. Validation similar to Create logic
+	// Check period if date changed
+	if !journal.EntryDate.Equal(input.EntryDate) {
+		period, err := uc.periodRepo.GetByDate(ctx, journal.CompanyID, input.EntryDate)
+		if err != nil {
+			return nil, fmt.Errorf("period not found for date %s: %w", input.EntryDate.Format("2006-01-02"), err)
+		}
+		if err := period.CanPost(); err != nil {
+			return nil, err
+		}
+		// Update PeriodID if changed
+		journal.PeriodID = period.ID
+	}
+
+	// Helper to check accounts and balance...
+	// (Re-implementing inline for brevity, though refactoring would be better)
+	accountIDs := make([]uuid.UUID, len(input.Lines))
+	for i, l := range input.Lines {
+		accountIDs[i] = l.AccountID
+	}
+	accounts, err := uc.accountRepo.GetByIDs(ctx, accountIDs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch accounts: %w", err)
+	}
+	for _, id := range accountIDs {
+		acc, ok := accounts[id]
+		if !ok {
+			return nil, fmt.Errorf("account %s not found", id)
+		}
+		if err := acc.CanPost(); err != nil {
+			return nil, fmt.Errorf("account %s: %w", acc.Code, err)
+		}
+	}
+
+	// Update Header
+	journal.EntryDate = input.EntryDate
+	journal.Description = input.Description
+
+	// Rebuild lines
+	journal.Lines = []entity.JournalLine{} // clear existing
+	for _, line := range input.Lines {
+		if err := journal.AddLine(line.AccountID, line.Description, line.DebitAmount, line.CreditAmount); err != nil {
+			return nil, err
+		}
+	}
+
+	// Validate Balance
+	if err := journal.Validate(); err != nil {
+		return nil, err
+	}
+
+	// 4. Save updates
+	if err := uc.journalRepo.UpdateDetails(ctx, journal); err != nil {
+		return nil, err
+	}
+
+	// 5. Audit Log
+	_ = uc.auditLogRepo.Create(ctx, entity.NewAuditLog(
+		journal.CompanyID,
+		&input.CreatedBy, // Actor
+		"",
+		entity.AuditActionUpdate,
+		"journal_entry",
+		&journal.ID,
+		fmt.Sprintf("Updated journal %s", journal.EntryNumber),
+		"", "",
+	))
+
+	return journal, nil
+}
+
 // GetByID retrieves a journal by ID
 func (uc *JournalUsecase) GetByID(ctx context.Context, id uuid.UUID) (*entity.JournalEntry, error) {
 	return uc.journalRepo.GetByID(ctx, id)
@@ -281,4 +365,26 @@ func (uc *JournalUsecase) RejectJournal(ctx context.Context, id, rejectorID uuid
 // GetPendingApprovals returns journals awaiting approval
 func (uc *JournalUsecase) GetPendingApprovals(ctx context.Context, companyID uuid.UUID) ([]entity.JournalEntry, error) {
 	return uc.journalRepo.GetByStatus(ctx, companyID, entity.JournalStatusPendingApproval)
+}
+
+// List returns all journals for a company with pagination
+func (uc *JournalUsecase) List(ctx context.Context, companyID uuid.UUID, limit, offset int, search string) ([]entity.JournalEntry, int, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	journals, err := uc.journalRepo.GetByCompany(ctx, companyID, limit, offset, search)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	total, err := uc.journalRepo.Count(ctx, companyID, search)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return journals, total, nil
 }

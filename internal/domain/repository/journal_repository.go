@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/herman-xphp/bukuo/internal/domain/entity"
+	"github.com/shopspring/decimal"
 )
 
 // JournalRepository defines the interface for journal entry persistence
@@ -16,7 +17,11 @@ type JournalRepository interface {
 	GetByPeriod(ctx context.Context, periodID uuid.UUID) ([]entity.JournalEntry, error)
 	GetByDateRange(ctx context.Context, companyID uuid.UUID, start, end time.Time) ([]entity.JournalEntry, error)
 	GetByStatus(ctx context.Context, companyID uuid.UUID, status entity.JournalStatus) ([]entity.JournalEntry, error)
+	GetByCompany(ctx context.Context, companyID uuid.UUID, limit, offset int, search string) ([]entity.JournalEntry, error)
+	Count(ctx context.Context, companyID uuid.UUID, search string) (int, error)
+	GetBalance(ctx context.Context, accountID uuid.UUID) (decimal.Decimal, error)
 	Update(ctx context.Context, journal *entity.JournalEntry) error
+	UpdateDetails(ctx context.Context, journal *entity.JournalEntry) error
 	CountByYear(ctx context.Context, companyID uuid.UUID, year int) (int, error)
 
 	// CreateReversalWithTransaction creates reversal journal and updates original in single transaction
