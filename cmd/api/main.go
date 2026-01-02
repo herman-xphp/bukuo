@@ -24,6 +24,8 @@ import (
 	categoryUC "github.com/herman-xphp/bukuo/internal/usecase/category"
 	closingUC "github.com/herman-xphp/bukuo/internal/usecase/closing"
 	contactUC "github.com/herman-xphp/bukuo/internal/usecase/contact"
+	currencyUC "github.com/herman-xphp/bukuo/internal/usecase/currency"
+	exchangerateUC "github.com/herman-xphp/bukuo/internal/usecase/exchangerate"
 	journalUC "github.com/herman-xphp/bukuo/internal/usecase/journal"
 	openingUC "github.com/herman-xphp/bukuo/internal/usecase/opening"
 	periodUC "github.com/herman-xphp/bukuo/internal/usecase/period"
@@ -97,6 +99,8 @@ func main() {
 	unitRepo := postgres.NewUnitRepository(db)
 	categoryRepo := postgres.NewCategoryRepository(db)
 	productRepo := postgres.NewProductRepository(db)
+	currencyRepo := postgres.NewCurrencyRepository(db)
+	exchangeRateRepo := postgres.NewExchangeRateRepository(db)
 
 	// JWT Service
 	jwtService := authUC.NewJWTService(cfg.JWT.Secret, cfg.JWT.Expiry)
@@ -114,22 +118,26 @@ func main() {
 	unitUsecase := unitUC.NewUnitUsecase(unitRepo)
 	categoryUsecase := categoryUC.NewCategoryUsecase(categoryRepo)
 	productUsecase := productUC.NewProductUsecase(productRepo)
+	currencyUsecase := currencyUC.NewCurrencyUsecase(currencyRepo)
+	exchangerateUsecase := exchangerateUC.NewExchangeRateUsecase(exchangeRateRepo, currencyRepo)
 
 	// Delivery Layer - HTTP Handlers
 	handlers := &httpDelivery.Handlers{
-		Health:   handler.NewHealthHandler(),
-		Auth:     handler.NewAuthHandler(authUsecase),
-		Account:  handler.NewAccountHandler(accountUsecase),
-		Period:   handler.NewPeriodHandler(periodUsecase),
-		Journal:  handler.NewJournalHandler(journalUsecase),
-		Report:   handler.NewReportHandler(reportUsecase),
-		Closing:  handler.NewClosingHandler(closingUsecase),
-		Opening:  handler.NewOpeningHandler(openingUsecase),
-		User:     handler.NewUserHandler(userUsecase),
-		Contact:  handler.NewContactHandler(contactUsecase),
-		Unit:     handler.NewUnitHandler(unitUsecase),
-		Category: handler.NewCategoryHandler(categoryUsecase),
-		Product:  handler.NewProductHandler(productUsecase),
+		Health:       handler.NewHealthHandler(),
+		Auth:         handler.NewAuthHandler(authUsecase),
+		Account:      handler.NewAccountHandler(accountUsecase),
+		Period:       handler.NewPeriodHandler(periodUsecase),
+		Journal:      handler.NewJournalHandler(journalUsecase),
+		Report:       handler.NewReportHandler(reportUsecase),
+		Closing:      handler.NewClosingHandler(closingUsecase),
+		Opening:      handler.NewOpeningHandler(openingUsecase),
+		User:         handler.NewUserHandler(userUsecase),
+		Contact:      handler.NewContactHandler(contactUsecase),
+		Unit:         handler.NewUnitHandler(unitUsecase),
+		Category:     handler.NewCategoryHandler(categoryUsecase),
+		Product:      handler.NewProductHandler(productUsecase),
+		Currency:     handler.NewCurrencyHandler(currencyUsecase),
+		ExchangeRate: handler.NewExchangeRateHandler(exchangerateUsecase),
 	}
 
 	// Middleware

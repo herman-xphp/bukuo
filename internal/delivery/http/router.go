@@ -8,19 +8,21 @@ import (
 
 // Handlers holds all HTTP handlers
 type Handlers struct {
-	Health   *handler.HealthHandler
-	Auth     *handler.AuthHandler
-	Journal  *handler.JournalHandler
-	Account  *handler.AccountHandler
-	Period   *handler.PeriodHandler
-	Report   *handler.ReportHandler
-	Closing  *handler.ClosingHandler
-	Opening  *handler.OpeningHandler
-	User     *handler.UserHandler
-	Contact  *handler.ContactHandler
-	Unit     *handler.UnitHandler
-	Category *handler.CategoryHandler
-	Product  *handler.ProductHandler
+	Health       *handler.HealthHandler
+	Auth         *handler.AuthHandler
+	Journal      *handler.JournalHandler
+	Account      *handler.AccountHandler
+	Period       *handler.PeriodHandler
+	Report       *handler.ReportHandler
+	Closing      *handler.ClosingHandler
+	Opening      *handler.OpeningHandler
+	User         *handler.UserHandler
+	Contact      *handler.ContactHandler
+	Unit         *handler.UnitHandler
+	Category     *handler.CategoryHandler
+	Product      *handler.ProductHandler
+	Currency     *handler.CurrencyHandler
+	ExchangeRate *handler.ExchangeRateHandler
 }
 
 // SetupRouter configures all routes
@@ -124,6 +126,40 @@ func SetupRouter(r *gin.Engine, h *Handlers, authMW *middleware.AuthMiddleware) 
 				protected.POST("", h.Product.Create)
 				protected.PUT("/:id", h.Product.Update)
 				protected.DELETE("/:id", h.Product.Delete)
+			}
+		}
+
+		// Currencies
+		currencies := api.Group("/currencies")
+		{
+			currencies.GET("", h.Currency.List)
+			currencies.GET("/base", h.Currency.GetBase)
+			currencies.GET("/:id", h.Currency.GetByID)
+
+			protected := currencies.Group("")
+			protected.Use(authMW.RequireRole("ADMIN", "ACCOUNTANT"))
+			{
+				protected.POST("", h.Currency.Create)
+				protected.POST("/preset", h.Currency.CreateFromPreset)
+				protected.PUT("/:id", h.Currency.Update)
+				protected.POST("/:id/set-base", h.Currency.SetBase)
+				protected.DELETE("/:id", h.Currency.Delete)
+			}
+		}
+
+		// Exchange Rates
+		exchangeRates := api.Group("/exchange-rates")
+		{
+			exchangeRates.GET("", h.ExchangeRate.List)
+			exchangeRates.GET("/convert", h.ExchangeRate.Convert)
+			exchangeRates.GET("/:id", h.ExchangeRate.GetByID)
+
+			protected := exchangeRates.Group("")
+			protected.Use(authMW.RequireRole("ADMIN", "ACCOUNTANT"))
+			{
+				protected.POST("", h.ExchangeRate.Create)
+				protected.PUT("/:id", h.ExchangeRate.Update)
+				protected.DELETE("/:id", h.ExchangeRate.Delete)
 			}
 		}
 
