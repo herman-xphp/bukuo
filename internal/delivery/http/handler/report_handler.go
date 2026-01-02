@@ -132,3 +132,16 @@ func (h *ReportHandler) CashFlow(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"data": result})
 }
+
+// Dashboard handles GET /reports/dashboard
+func (h *ReportHandler) Dashboard(c *gin.Context) {
+	companyID, _ := uuid.Parse(c.GetString("company_id"))
+
+	result, err := h.usecase.GetDashboardStats(c.Request.Context(), companyID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": result})
+}

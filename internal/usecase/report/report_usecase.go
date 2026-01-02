@@ -214,14 +214,14 @@ type IncomeStatementItem struct {
 
 // IncomeStatement represents the income statement
 type IncomeStatement struct {
-	CompanyID    uuid.UUID             `json:"company_id"`
-	StartDate    time.Time             `json:"start_date"`
-	EndDate      time.Time             `json:"end_date"`
-	Revenue      []IncomeStatementItem `json:"revenue"`
-	Expenses     []IncomeStatementItem `json:"expenses"`
-	TotalRevenue decimal.Decimal       `json:"total_revenue"`
-	TotalExpense decimal.Decimal       `json:"total_expense"`
-	NetIncome    decimal.Decimal       `json:"net_income"`
+	CompanyID     uuid.UUID             `json:"company_id"`
+	StartDate     time.Time             `json:"start_date"`
+	EndDate       time.Time             `json:"end_date"`
+	Revenue       []IncomeStatementItem `json:"revenue"`
+	Expenses      []IncomeStatementItem `json:"expenses"`
+	TotalRevenue  decimal.Decimal       `json:"total_revenue"`
+	TotalExpenses decimal.Decimal       `json:"total_expenses"`
+	NetIncome     decimal.Decimal       `json:"net_income"`
 }
 
 // GetIncomeStatement generates income statement
@@ -286,14 +286,14 @@ func (uc *ReportUsecase) GetIncomeStatement(ctx context.Context, companyID uuid.
 	}
 
 	return &IncomeStatement{
-		CompanyID:    companyID,
-		StartDate:    start,
-		EndDate:      end,
-		Revenue:      revenue,
-		Expenses:     expenses,
-		TotalRevenue: totalRevenue,
-		TotalExpense: totalExpense,
-		NetIncome:    totalRevenue.Sub(totalExpense),
+		CompanyID:     companyID,
+		StartDate:     start,
+		EndDate:       end,
+		Revenue:       revenue,
+		Expenses:      expenses,
+		TotalRevenue:  totalRevenue,
+		TotalExpenses: totalExpense,
+		NetIncome:     totalRevenue.Sub(totalExpense),
 	}, nil
 }
 
@@ -471,5 +471,57 @@ func (uc *ReportUsecase) GetCashFlow(ctx context.Context, companyID uuid.UUID, s
 		Financing:      []CashFlowItem{},
 		TotalFinancing: decimal.Zero,
 		NetCashChange:  totalOperating,
+	}, nil
+}
+
+// DashboardStats represents dashboard statistics
+type DashboardStats struct {
+	TotalRevenue        decimal.Decimal       `json:"total_revenue"`
+	TotalExpenses       decimal.Decimal       `json:"total_expenses"`
+	NetIncome           decimal.Decimal       `json:"net_income"`
+	ActiveAccounts      int                   `json:"active_accounts"`
+	RecentJournals      []entity.JournalEntry `json:"recent_journals"`
+	RevenueGrowth       float64               `json:"revenue_growth"`        // Placeholder for now
+	ActiveAccountGrowth int                   `json:"active_account_growth"` // Placeholder
+}
+
+// GetDashboardStats generates dashboard statistics
+func (uc *ReportUsecase) GetDashboardStats(ctx context.Context, companyID uuid.UUID) (*DashboardStats, error) {
+	// 1. Get Income Statement for current month to calculate Revenue, Expenses, Net Income
+	now := time.Now()
+	startOfMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.Local)
+	endOfMonth := startOfMonth.AddDate(0, 1, -1)
+
+	incomeStmt, err := uc.GetIncomeStatement(ctx, companyID, startOfMonth, endOfMonth)
+	if err != nil {
+		return nil, err
+	}
+
+	// 2. Get Active Accounts Count
+	accounts, err := uc.accountRepo.GetByCompany(ctx, companyID)
+	if err != nil {
+		return nil, err
+	}
+	activeAccounts := 0
+	for _, acc := range accounts {
+		if acc.IsActive {
+			activeAccounts++
+		}
+	}
+
+	// 3. Get Recent Journals (Limit 5)
+	journals, err := uc.journalRepo.GetByCompany(ctx, companyID, 5, 0, "")
+	if err != nil {
+		return nil, err
+	}
+
+	return &DashboardStats{
+		TotalRevenue:        incomeStmt.TotalRevenue,
+		TotalExpenses:       incomeStmt.TotalExpenses,
+		NetIncome:           incomeStmt.NetIncome,
+		ActiveAccounts:      activeAccounts,
+		RecentJournals:      journals,
+		RevenueGrowth:       0, // To be implemented with historical data comparison
+		ActiveAccountGrowth: 0, // To be implemented
 	}, nil
 }
