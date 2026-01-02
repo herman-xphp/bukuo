@@ -1,0 +1,156 @@
+@baseUrl = http://localhost:8080
+@email = admin@test.com
+@password = password123
+@authToken = {{login.response.body.token}}
+
+### 1. Health Check
+GET {{baseUrl}}/health
+
+### 2. Register Company & User
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+    "company_name": "PT Maju Mundur",
+    "email": "{{email}}",
+    "password": "{{password}}",
+    "name": "Budi Admin"
+}
+
+### 3. Login
+# @name login
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+    "email": "{{email}}",
+    "password": "{{password}}"
+}
+
+### 4. Get Current User (Auth Test)
+GET {{baseUrl}}/api/me
+Authorization: Bearer {{authToken}}
+
+### ------------------------------------------------------------------------
+### ACCOUNTS (Chart of Accounts)
+### ------------------------------------------------------------------------
+
+### 5. Get All Accounts
+GET {{baseUrl}}/api/accounts
+Authorization: Bearer {{authToken}}
+
+### 6. Create Account (Asset)
+POST {{baseUrl}}/api/accounts
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+    "code": "1-1002",
+    "name": "Bank BCA",
+    "type": "ASSET",
+    "is_postable": true
+}
+
+### ------------------------------------------------------------------------
+### PERIODS
+### ------------------------------------------------------------------------
+
+### 7. Get All Periods
+GET {{baseUrl}}/api/periods
+Authorization: Bearer {{authToken}}
+
+### 8. Create Period
+POST {{baseUrl}}/api/periods
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+    "name": "January 2025",
+    "start_date": "2025-01-01T00:00:00Z",
+    "end_date": "2025-01-31T23:59:59Z"
+}
+
+### ------------------------------------------------------------------------
+### JOURNALS
+### ------------------------------------------------------------------------
+
+### 9. Create Journal Entry (Draft)
+# @name createJournal
+POST {{baseUrl}}/api/journals
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+    "description": "Initial Capital Injection",
+    "entry_date": "2025-01-01T10:00:00Z",
+    "lines": [
+        {
+            "account_id": "REPLACE_WITH_ASSET_ACCOUNT_ID",
+            "description": "Cash Deposit",
+            "debit_amount": "10000000",
+            "credit_amount": "0"
+        },
+        {
+            "account_id": "REPLACE_WITH_EQUITY_ACCOUNT_ID",
+            "description": "Owner Capital",
+            "debit_amount": "0",
+            "credit_amount": "10000000"
+        }
+    ]
+}
+
+@journalId = {{createJournal.response.body.id}}
+
+### 10. Submit for Approval (New Feature)
+POST {{baseUrl}}/api/journals/{{journalId}}/submit
+Authorization: Bearer {{authToken}}
+
+### 11. Approve Journal (New Feature)
+POST {{baseUrl}}/api/journals/{{journalId}}/approve
+Authorization: Bearer {{authToken}}
+
+### 12. Post Journal (Finalize)
+POST {{baseUrl}}/api/journals/{{journalId}}/post
+Authorization: Bearer {{authToken}}
+
+### 13. Reverse Journal
+POST {{baseUrl}}/api/journals/{{journalId}}/reverse
+Authorization: Bearer {{authToken}}
+
+### ------------------------------------------------------------------------
+### REPORTS
+### ------------------------------------------------------------------------
+
+### 14. Trial Balance
+GET {{baseUrl}}/api/reports/trial-balance?period_id=REPLACE_WITH_PERIOD_ID
+Authorization: Bearer {{authToken}}
+
+### 15. Income Statement
+GET {{baseUrl}}/api/reports/income-statement?start_date=2025-01-01&end_date=2025-01-31
+Authorization: Bearer {{authToken}}
+
+### 16. Balance Sheet
+GET {{baseUrl}}/api/reports/balance-sheet?as_of_date=2025-01-31
+Authorization: Bearer {{authToken}}
+
+### ------------------------------------------------------------------------
+### CLOSING & OPENING (New Features)
+### ------------------------------------------------------------------------
+
+### 17. Preview Closing
+GET {{baseUrl}}/api/closing/preview/REPLACE_WITH_PERIOD_ID
+Authorization: Bearer {{authToken}}
+
+### 18. Close Period (Execute)
+POST {{baseUrl}}/api/closing/period
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+    "period_id": "REPLACE_WITH_PERIOD_ID",
+    "retained_earnings_id": "REPLACE_WITH_RETAINED_EARNINGS_ACCOUNT_ID"
+}
+
+### 19. Get Opening Balance Template
+GET {{baseUrl}}/api/opening-balance/template
+Authorization: Bearer {{authToken}}
