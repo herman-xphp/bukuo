@@ -43,6 +43,9 @@ migrate-down:
 migrate-force:
 	$(MIGRATE_CMD) force $(version)
 
-.PHONY: lint
 lint:
 	golangci-lint run
+
+.PHONY: docker-build
+docker-build:
+	docker build -t bukuo-api:latest .
