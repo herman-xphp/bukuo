@@ -25,6 +25,7 @@ type Handlers struct {
 	ExchangeRate *handler.ExchangeRateHandler
 	Warehouse    *handler.WarehouseHandler
 	Inventory    *handler.InventoryHandler
+	Sales        *handler.SalesHandler
 }
 
 // SetupRouter configures all routes
@@ -192,6 +193,20 @@ func SetupRouter(r *gin.Engine, h *Handlers, authMW *middleware.AuthMiddleware) 
 			{
 				protected.POST("/stock-in", h.Inventory.StockIn)
 				protected.POST("/stock-out", h.Inventory.StockOut)
+			}
+		}
+
+		// Sales
+		salesGroup := api.Group("/sales")
+		{
+			salesGroup.GET("/invoices", h.Sales.ListInvoices)
+			salesGroup.GET("/orders", h.Sales.ListOrders)
+			salesGroup.GET("/quotations", h.Sales.ListQuotations)
+
+			protected := salesGroup.Group("")
+			protected.Use(authMW.RequireRole("ADMIN", "ACCOUNTANT"))
+			{
+				protected.POST("/invoices", h.Sales.CreateInvoice)
 			}
 		}
 
