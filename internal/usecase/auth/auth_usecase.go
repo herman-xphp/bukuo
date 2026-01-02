@@ -95,7 +95,7 @@ func (uc *AuthUsecase) Register(ctx context.Context, input RegisterInput) (*Regi
 		auditLog := entity.NewAuditLog(
 			company.ID, &user.ID, user.Email,
 			entity.AuditActionCreate, "USER", &user.ID,
-			"User registered: "+user.Name,
+			"User registered",
 			input.IPAddress, input.UserAgent,
 		)
 		// For critical flows like registration, we might want to ensure audit log is also saved successfully
