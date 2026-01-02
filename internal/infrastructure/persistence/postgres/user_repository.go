@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/herman-xphp/bukuo/internal/domain/entity"
@@ -108,4 +109,56 @@ func (r *UserRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	query := `DELETE FROM users WHERE id = $1`
 	_, err := r.db.Exec(ctx, query, id)
 	return err
+}
+
+func (r *UserRepository) List(ctx context.Context, companyID uuid.UUID, limit, offset int, search string) ([]entity.User, error) {
+	whereClause := `WHERE company_id = $1`
+	args := []interface{}{companyID}
+
+	if search != "" {
+		whereClause += fmt.Sprintf(` AND (name ILIKE $%d OR email ILIKE $%d)`, len(args)+1, len(args)+1)
+		args = append(args, "%"+search+"%")
+	}
+
+	query := fmt.Sprintf(`
+		SELECT id, company_id, email, password_hash, name, role, is_active, last_login_at, created_at, updated_at
+		FROM users %s ORDER BY name LIMIT $%d OFFSET $%d
+	`, whereClause, len(args)+1, len(args)+2)
+
+	args = append(args, limit, offset)
+
+	rows, err := r.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []entity.User
+	for rows.Next() {
+		var u entity.User
+		err := rows.Scan(
+			&u.ID, &u.CompanyID, &u.Email, &u.PasswordHash,
+			&u.Name, &u.Role, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		users = append(users, u)
+	}
+	return users, nil
+}
+
+func (r *UserRepository) Count(ctx context.Context, companyID uuid.UUID, search string) (int, error) {
+	whereClause := `WHERE company_id = $1`
+	args := []interface{}{companyID}
+
+	if search != "" {
+		whereClause += fmt.Sprintf(` AND (name ILIKE $%d OR email ILIKE $%d)`, len(args)+1, len(args)+1)
+		args = append(args, "%"+search+"%")
+	}
+
+	query := fmt.Sprintf(`SELECT COUNT(*) FROM users %s`, whereClause)
+	var count int
+	err := r.db.QueryRow(ctx, query, args...).Scan(&count)
+	return count, err
 }
