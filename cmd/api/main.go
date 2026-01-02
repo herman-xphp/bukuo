@@ -21,11 +21,16 @@ import (
 	"github.com/herman-xphp/bukuo/internal/infrastructure/persistence/postgres"
 	accountUC "github.com/herman-xphp/bukuo/internal/usecase/account"
 	authUC "github.com/herman-xphp/bukuo/internal/usecase/auth"
+	categoryUC "github.com/herman-xphp/bukuo/internal/usecase/category"
 	closingUC "github.com/herman-xphp/bukuo/internal/usecase/closing"
+	contactUC "github.com/herman-xphp/bukuo/internal/usecase/contact"
 	journalUC "github.com/herman-xphp/bukuo/internal/usecase/journal"
 	openingUC "github.com/herman-xphp/bukuo/internal/usecase/opening"
 	periodUC "github.com/herman-xphp/bukuo/internal/usecase/period"
+	productUC "github.com/herman-xphp/bukuo/internal/usecase/product"
 	reportUC "github.com/herman-xphp/bukuo/internal/usecase/report"
+	unitUC "github.com/herman-xphp/bukuo/internal/usecase/unit"
+	userUC "github.com/herman-xphp/bukuo/internal/usecase/user"
 
 	_ "github.com/herman-xphp/bukuo/docs" // Swagger docs
 )
@@ -88,29 +93,43 @@ func main() {
 	periodRepo := postgres.NewPeriodRepository(db)
 	journalRepo := postgres.NewJournalRepository(db)
 	auditLogRepo := postgres.NewAuditLogRepository(db)
+	contactRepo := postgres.NewContactRepository(db)
+	unitRepo := postgres.NewUnitRepository(db)
+	categoryRepo := postgres.NewCategoryRepository(db)
+	productRepo := postgres.NewProductRepository(db)
 
 	// JWT Service
 	jwtService := authUC.NewJWTService(cfg.JWT.Secret, cfg.JWT.Expiry)
 
 	// Usecase Layer - Business Logic
 	authUsecase := authUC.NewAuthUsecase(userRepo, companyRepo, jwtService, auditLogRepo, cfg.Security)
-	accountUsecase := accountUC.NewAccountUsecase(accountRepo)
+	accountUsecase := accountUC.NewAccountUsecase(accountRepo, journalRepo)
 	periodUsecase := periodUC.NewPeriodUsecase(periodRepo)
 	journalUsecase := journalUC.NewJournalUsecase(journalRepo, accountRepo, periodRepo, auditLogRepo)
 	reportUsecase := reportUC.NewReportUsecase(journalRepo, accountRepo, periodRepo)
 	closingUsecase := closingUC.NewClosingUsecase(journalRepo, accountRepo, periodRepo, auditLogRepo)
 	openingUsecase := openingUC.NewOpeningBalanceUsecase(journalRepo, accountRepo, periodRepo)
+	userUsecase := userUC.NewUserUsecase(userRepo)
+	contactUsecase := contactUC.NewContactUsecase(contactRepo)
+	unitUsecase := unitUC.NewUnitUsecase(unitRepo)
+	categoryUsecase := categoryUC.NewCategoryUsecase(categoryRepo)
+	productUsecase := productUC.NewProductUsecase(productRepo)
 
 	// Delivery Layer - HTTP Handlers
 	handlers := &httpDelivery.Handlers{
-		Health:  handler.NewHealthHandler(),
-		Auth:    handler.NewAuthHandler(authUsecase),
-		Account: handler.NewAccountHandler(accountUsecase),
-		Period:  handler.NewPeriodHandler(periodUsecase),
-		Journal: handler.NewJournalHandler(journalUsecase),
-		Report:  handler.NewReportHandler(reportUsecase),
-		Closing: handler.NewClosingHandler(closingUsecase),
-		Opening: handler.NewOpeningHandler(openingUsecase),
+		Health:   handler.NewHealthHandler(),
+		Auth:     handler.NewAuthHandler(authUsecase),
+		Account:  handler.NewAccountHandler(accountUsecase),
+		Period:   handler.NewPeriodHandler(periodUsecase),
+		Journal:  handler.NewJournalHandler(journalUsecase),
+		Report:   handler.NewReportHandler(reportUsecase),
+		Closing:  handler.NewClosingHandler(closingUsecase),
+		Opening:  handler.NewOpeningHandler(openingUsecase),
+		User:     handler.NewUserHandler(userUsecase),
+		Contact:  handler.NewContactHandler(contactUsecase),
+		Unit:     handler.NewUnitHandler(unitUsecase),
+		Category: handler.NewCategoryHandler(categoryUsecase),
+		Product:  handler.NewProductHandler(productUsecase),
 	}
 
 	// Middleware

@@ -8,14 +8,19 @@ import (
 
 // Handlers holds all HTTP handlers
 type Handlers struct {
-	Health  *handler.HealthHandler
-	Auth    *handler.AuthHandler
-	Journal *handler.JournalHandler
-	Account *handler.AccountHandler
-	Period  *handler.PeriodHandler
-	Report  *handler.ReportHandler
-	Closing *handler.ClosingHandler
-	Opening *handler.OpeningHandler
+	Health   *handler.HealthHandler
+	Auth     *handler.AuthHandler
+	Journal  *handler.JournalHandler
+	Account  *handler.AccountHandler
+	Period   *handler.PeriodHandler
+	Report   *handler.ReportHandler
+	Closing  *handler.ClosingHandler
+	Opening  *handler.OpeningHandler
+	User     *handler.UserHandler
+	Contact  *handler.ContactHandler
+	Unit     *handler.UnitHandler
+	Category *handler.CategoryHandler
+	Product  *handler.ProductHandler
 }
 
 // SetupRouter configures all routes
@@ -38,41 +43,130 @@ func SetupRouter(r *gin.Engine, h *Handlers, authMW *middleware.AuthMiddleware) 
 		// Auth
 		api.GET("/me", h.Auth.Me)
 
+		// Users (Admin only)
+		users := api.Group("/users")
+		users.Use(authMW.RequireRole("ADMIN"))
+		{
+			users.POST("", h.User.Create)
+			users.GET("", h.User.List)
+			users.DELETE("/:id", h.User.Delete)
+		}
+
 		// Accounts
 		accounts := api.Group("/accounts")
 		{
-			accounts.POST("", h.Account.Create)
 			accounts.GET("", h.Account.GetAll)
 			accounts.GET("/:id", h.Account.GetByID)
-			accounts.PUT("/:id", h.Account.Update)
-			accounts.DELETE("/:id", h.Account.Delete)
+
+			// Accountants and Admins can modify
+			protected := accounts.Group("")
+			protected.Use(authMW.RequireRole("ADMIN", "ACCOUNTANT"))
+			{
+				protected.POST("", h.Account.Create)
+				protected.PUT("/:id", h.Account.Update)
+				protected.DELETE("/:id", h.Account.Delete)
+			}
 		}
 
-		// Periods
+		// Contacts (Customers/Suppliers)
+		contacts := api.Group("/contacts")
+		{
+			contacts.GET("", h.Contact.List)
+			contacts.GET("/:id", h.Contact.GetByID)
+
+			protected := contacts.Group("")
+			protected.Use(authMW.RequireRole("ADMIN", "ACCOUNTANT"))
+			{
+				protected.POST("", h.Contact.Create)
+				protected.PUT("/:id", h.Contact.Update)
+				protected.DELETE("/:id", h.Contact.Delete)
+			}
+		}
+
+		// Units of Measure
+		units := api.Group("/units")
+		{
+			units.GET("", h.Unit.List)
+			units.GET("/:id", h.Unit.GetByID)
+
+			protected := units.Group("")
+			protected.Use(authMW.RequireRole("ADMIN", "ACCOUNTANT"))
+			{
+				protected.POST("", h.Unit.Create)
+				protected.DELETE("/:id", h.Unit.Delete)
+			}
+		}
+
+		// Product Categories
+		categories := api.Group("/product-categories")
+		{
+			categories.GET("", h.Category.List)
+			categories.GET("/:id", h.Category.GetByID)
+
+			protected := categories.Group("")
+			protected.Use(authMW.RequireRole("ADMIN", "ACCOUNTANT"))
+			{
+				protected.POST("", h.Category.Create)
+				protected.PUT("/:id", h.Category.Update)
+				protected.DELETE("/:id", h.Category.Delete)
+			}
+		}
+
+		// Products
+		products := api.Group("/products")
+		{
+			products.GET("", h.Product.List)
+			products.GET("/:id", h.Product.GetByID)
+
+			protected := products.Group("")
+			protected.Use(authMW.RequireRole("ADMIN", "ACCOUNTANT"))
+			{
+				protected.POST("", h.Product.Create)
+				protected.PUT("/:id", h.Product.Update)
+				protected.DELETE("/:id", h.Product.Delete)
+			}
+		}
+
+		// Periods (Admin/Accountant)
 		periods := api.Group("/periods")
 		{
-			periods.POST("", h.Period.Create)
 			periods.GET("", h.Period.GetAll)
 			periods.GET("/:id", h.Period.GetByID)
-			periods.POST("/:id/close", h.Period.Close)
+
+			protected := periods.Group("")
+			protected.Use(authMW.RequireRole("ADMIN", "ACCOUNTANT"))
+			{
+				protected.POST("", h.Period.Create)
+				protected.PUT("/:id", h.Period.Update)
+				protected.DELETE("/:id", h.Period.Delete)
+				protected.POST("/:id/close", h.Period.Close)
+			}
 		}
 
 		// Journals
 		journals := api.Group("/journals")
 		{
+			journals.GET("", h.Journal.List)                     // List all journals
 			journals.GET("/pending", h.Journal.PendingApprovals) // List pending approvals
-			journals.POST("", h.Journal.Create)
 			journals.GET("/:id", h.Journal.GetByID)
-			journals.POST("/:id/post", h.Journal.Post)
-			journals.POST("/:id/reverse", h.Journal.Reverse)
-			journals.POST("/:id/submit-approval", h.Journal.SubmitForApproval)
-			journals.POST("/:id/approve", h.Journal.Approve)
-			journals.POST("/:id/reject", h.Journal.Reject)
+
+			protected := journals.Group("")
+			protected.Use(authMW.RequireRole("ADMIN", "ACCOUNTANT"))
+			{
+				protected.POST("", h.Journal.Create)
+				protected.PUT("/:id", h.Journal.Update)
+				protected.POST("/:id/post", h.Journal.Post)
+				protected.POST("/:id/reverse", h.Journal.Reverse)
+				protected.POST("/:id/submit-approval", h.Journal.SubmitForApproval)
+				protected.POST("/:id/approve", h.Journal.Approve)
+				protected.POST("/:id/reject", h.Journal.Reject)
+			}
 		}
 
 		// Reports
 		reports := api.Group("/reports")
 		{
+			reports.GET("/dashboard", h.Report.Dashboard)
 			reports.GET("/trial-balance", h.Report.TrialBalance)
 			reports.GET("/ledger/:account_id", h.Report.GeneralLedger)
 			reports.GET("/income-statement", h.Report.IncomeStatement)
@@ -80,15 +174,17 @@ func SetupRouter(r *gin.Engine, h *Handlers, authMW *middleware.AuthMiddleware) 
 			reports.GET("/cash-flow", h.Report.CashFlow)
 		}
 
-		// Closing
+		// Closing (Admin/Accountant)
 		closingRoutes := api.Group("/closing")
+		closingRoutes.Use(authMW.RequireRole("ADMIN", "ACCOUNTANT"))
 		{
 			closingRoutes.GET("/preview/:period_id", h.Closing.PreviewClosing)
 			closingRoutes.POST("/period", h.Closing.ClosePeriod)
 		}
 
-		// Opening Balance
+		// Opening Balance (Admin/Accountant)
 		openingRoutes := api.Group("/opening-balance")
+		openingRoutes.Use(authMW.RequireRole("ADMIN", "ACCOUNTANT"))
 		{
 			openingRoutes.GET("/template", h.Opening.Template)
 			openingRoutes.POST("/import", h.Opening.Import)
