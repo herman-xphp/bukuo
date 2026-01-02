@@ -23,6 +23,8 @@ type Handlers struct {
 	Product      *handler.ProductHandler
 	Currency     *handler.CurrencyHandler
 	ExchangeRate *handler.ExchangeRateHandler
+	Warehouse    *handler.WarehouseHandler
+	Inventory    *handler.InventoryHandler
 }
 
 // SetupRouter configures all routes
@@ -160,6 +162,36 @@ func SetupRouter(r *gin.Engine, h *Handlers, authMW *middleware.AuthMiddleware) 
 				protected.POST("", h.ExchangeRate.Create)
 				protected.PUT("/:id", h.ExchangeRate.Update)
 				protected.DELETE("/:id", h.ExchangeRate.Delete)
+			}
+		}
+
+		// Warehouses
+		warehouses := api.Group("/warehouses")
+		{
+			warehouses.GET("", h.Warehouse.List)
+			warehouses.GET("/:id", h.Warehouse.GetByID)
+
+			protected := warehouses.Group("")
+			protected.Use(authMW.RequireRole("ADMIN", "ACCOUNTANT"))
+			{
+				protected.POST("", h.Warehouse.Create)
+				protected.PUT("/:id", h.Warehouse.Update)
+				protected.POST("/:id/set-default", h.Warehouse.SetDefault)
+				protected.DELETE("/:id", h.Warehouse.Delete)
+			}
+		}
+
+		// Inventory
+		inventory := api.Group("/inventory")
+		{
+			inventory.GET("/stock", h.Inventory.GetStock)
+			inventory.GET("/transactions", h.Inventory.ListTransactions)
+
+			protected := inventory.Group("")
+			protected.Use(authMW.RequireRole("ADMIN", "ACCOUNTANT"))
+			{
+				protected.POST("/stock-in", h.Inventory.StockIn)
+				protected.POST("/stock-out", h.Inventory.StockOut)
 			}
 		}
 
