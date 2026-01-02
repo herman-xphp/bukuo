@@ -49,3 +49,13 @@ lint:
 .PHONY: docker-build
 docker-build:
 	docker build -t bukuo-api:latest .
+
+.PHONY: test-pkg
+test-pkg:
+	@if [ -z "$(PKG)" ]; then echo "Usage: make test-pkg PKG=./path/to/package"; exit 1; fi
+	go test -v $(PKG) -count=1
+
+.PHONY: test-run
+test-run:
+	@if [ -z "$(RUN)" ]; then echo "Usage: make test-run RUN=TestName"; exit 1; fi
+	go test -v ./... -run $(RUN) -count=1
