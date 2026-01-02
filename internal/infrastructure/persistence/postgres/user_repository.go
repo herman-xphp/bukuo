@@ -28,7 +28,7 @@ func (r *UserRepository) Create(ctx context.Context, user *entity.User) error {
 		INSERT INTO users (id, company_id, email, password_hash, name, role, is_active, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 	`
-	_, err := r.db.Exec(ctx, query,
+	_, err := GetExecutor(ctx, r.db).Exec(ctx, query,
 		user.ID, user.CompanyID, user.Email, user.PasswordHash,
 		user.Name, user.Role, user.IsActive, user.CreatedAt, user.UpdatedAt,
 	)
@@ -41,7 +41,7 @@ func (r *UserRepository) GetByID(ctx context.Context, id uuid.UUID) (*entity.Use
 		FROM users WHERE id = $1
 	`
 	var u entity.User
-	err := r.db.QueryRow(ctx, query, id).Scan(
+	err := GetExecutor(ctx, r.db).QueryRow(ctx, query, id).Scan(
 		&u.ID, &u.CompanyID, &u.Email, &u.PasswordHash,
 		&u.Name, &u.Role, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt,
 	)
@@ -57,7 +57,7 @@ func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*entity.
 		FROM users WHERE email = $1
 	`
 	var u entity.User
-	err := r.db.QueryRow(ctx, query, email).Scan(
+	err := GetExecutor(ctx, r.db).QueryRow(ctx, query, email).Scan(
 		&u.ID, &u.CompanyID, &u.Email, &u.PasswordHash,
 		&u.Name, &u.Role, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt,
 	)
@@ -72,7 +72,7 @@ func (r *UserRepository) GetByCompany(ctx context.Context, companyID uuid.UUID) 
 		SELECT id, company_id, email, password_hash, name, role, is_active, last_login_at, created_at, updated_at
 		FROM users WHERE company_id = $1 ORDER BY name
 	`
-	rows, err := r.db.Query(ctx, query, companyID)
+	rows, err := GetExecutor(ctx, r.db).Query(ctx, query, companyID)
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +99,7 @@ func (r *UserRepository) Update(ctx context.Context, user *entity.User) error {
 		SET name = $2, role = $3, is_active = $4, last_login_at = $5, updated_at = $6
 		WHERE id = $1
 	`
-	_, err := r.db.Exec(ctx, query,
+	_, err := GetExecutor(ctx, r.db).Exec(ctx, query,
 		user.ID, user.Name, user.Role, user.IsActive, user.LastLoginAt, user.UpdatedAt,
 	)
 	return err
@@ -107,7 +107,7 @@ func (r *UserRepository) Update(ctx context.Context, user *entity.User) error {
 
 func (r *UserRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	query := `DELETE FROM users WHERE id = $1`
-	_, err := r.db.Exec(ctx, query, id)
+	_, err := GetExecutor(ctx, r.db).Exec(ctx, query, id)
 	return err
 }
 
@@ -127,7 +127,7 @@ func (r *UserRepository) List(ctx context.Context, companyID uuid.UUID, limit, o
 
 	args = append(args, limit, offset)
 
-	rows, err := r.db.Query(ctx, query, args...)
+	rows, err := GetExecutor(ctx, r.db).Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -159,6 +159,6 @@ func (r *UserRepository) Count(ctx context.Context, companyID uuid.UUID, search 
 
 	query := fmt.Sprintf(`SELECT COUNT(*) FROM users %s`, whereClause)
 	var count int
-	err := r.db.QueryRow(ctx, query, args...).Scan(&count)
+	err := GetExecutor(ctx, r.db).QueryRow(ctx, query, args...).Scan(&count)
 	return count, err
 }

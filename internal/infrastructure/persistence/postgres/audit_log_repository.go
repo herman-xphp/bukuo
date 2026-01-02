@@ -27,7 +27,7 @@ func (r *AuditLogRepository) Create(ctx context.Context, log *entity.AuditLog) e
 		 description, old_value, new_value, ip_address, user_agent, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 	`
-	_, err := r.db.Exec(ctx, query,
+	_, err := GetExecutor(ctx, r.db).Exec(ctx, query,
 		log.ID, log.CompanyID, log.UserID, log.UserEmail, log.Action,
 		log.EntityType, log.EntityID, log.Description,
 		nullableString(log.OldValue), nullableString(log.NewValue),
@@ -83,7 +83,7 @@ func (r *AuditLogRepository) GetByDateRange(ctx context.Context, companyID uuid.
 }
 
 func (r *AuditLogRepository) queryLogs(ctx context.Context, query string, args ...interface{}) ([]entity.AuditLog, error) {
-	rows, err := r.db.Query(ctx, query, args...)
+	rows, err := GetExecutor(ctx, r.db).Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
