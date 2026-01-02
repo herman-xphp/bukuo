@@ -55,7 +55,10 @@ func (m *JournalRepositoryMock) Update(ctx context.Context, journal *entity.Jour
 	args := m.Called(ctx, journal)
 	return args.Error(0)
 }
-
+func (m *JournalRepositoryMock) UpdateDetails(ctx context.Context, journal *entity.JournalEntry) error {
+	args := m.Called(ctx, journal)
+	return args.Error(0)
+}
 func (m *JournalRepositoryMock) CountByYear(ctx context.Context, companyID uuid.UUID, year int) (int, error) {
 	args := m.Called(ctx, companyID, year)
 	return args.Int(0), args.Error(1)
@@ -68,6 +71,62 @@ func (m *JournalRepositoryMock) CreateReversalWithTransaction(ctx context.Contex
 
 func (m *JournalRepositoryMock) ClosePeriodWithTransaction(ctx context.Context, closingJournal *entity.JournalEntry, period *entity.AccountingPeriod) error {
 	args := m.Called(ctx, closingJournal, period)
+	return args.Error(0)
+}
+
+func (m *JournalRepositoryMock) GetByCompany(ctx context.Context, companyID uuid.UUID, limit, offset int, search string) ([]entity.JournalEntry, error) {
+	args := m.Called(ctx, companyID, limit, offset, search)
+	return args.Get(0).([]entity.JournalEntry), args.Error(1)
+}
+
+func (m *JournalRepositoryMock) Count(ctx context.Context, companyID uuid.UUID, search string) (int, error) {
+	args := m.Called(ctx, companyID, search)
+	return args.Int(0), args.Error(1)
+}
+
+func (m *JournalRepositoryMock) GetBalance(ctx context.Context, accountID uuid.UUID) (decimal.Decimal, error) {
+	args := m.Called(ctx, accountID)
+	return args.Get(0).(decimal.Decimal), args.Error(1)
+}
+
+// UserRepositoryMock mocks the UserRepository interface
+type UserRepositoryMock struct {
+	mock.Mock
+}
+
+func (m *UserRepositoryMock) Create(ctx context.Context, user *entity.User) error {
+	args := m.Called(ctx, user)
+	return args.Error(0)
+}
+
+func (m *UserRepositoryMock) GetByID(ctx context.Context, id uuid.UUID) (*entity.User, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*entity.User), args.Error(1)
+}
+
+func (m *UserRepositoryMock) GetByEmail(ctx context.Context, email string) (*entity.User, error) {
+	args := m.Called(ctx, email)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*entity.User), args.Error(1)
+}
+
+func (m *UserRepositoryMock) GetByCompany(ctx context.Context, companyID uuid.UUID) ([]entity.User, error) {
+	args := m.Called(ctx, companyID)
+	return args.Get(0).([]entity.User), args.Error(1)
+}
+
+func (m *UserRepositoryMock) Update(ctx context.Context, user *entity.User) error {
+	args := m.Called(ctx, user)
+	return args.Error(0)
+}
+
+func (m *UserRepositoryMock) Delete(ctx context.Context, id uuid.UUID) error {
+	args := m.Called(ctx, id)
 	return args.Error(0)
 }
 
@@ -102,6 +161,16 @@ func (m *AccountRepositoryMock) GetByCompany(ctx context.Context, companyID uuid
 	return args.Get(0).([]entity.Account), args.Error(1)
 }
 
+func (m *AccountRepositoryMock) List(ctx context.Context, companyID uuid.UUID, limit, offset int, search string) ([]entity.Account, error) {
+	args := m.Called(ctx, companyID, limit, offset, search)
+	return args.Get(0).([]entity.Account), args.Error(1)
+}
+
+func (m *AccountRepositoryMock) Count(ctx context.Context, companyID uuid.UUID, search string) (int, error) {
+	args := m.Called(ctx, companyID, search)
+	return args.Int(0), args.Error(1)
+}
+
 func (m *AccountRepositoryMock) Update(ctx context.Context, account *entity.Account) error {
 	args := m.Called(ctx, account)
 	return args.Error(0)
@@ -110,6 +179,16 @@ func (m *AccountRepositoryMock) Update(ctx context.Context, account *entity.Acco
 func (m *AccountRepositoryMock) Delete(ctx context.Context, id uuid.UUID) error {
 	args := m.Called(ctx, id)
 	return args.Error(0)
+}
+
+func (m *UserRepositoryMock) List(ctx context.Context, companyID uuid.UUID, limit, offset int, search string) ([]entity.User, error) {
+	args := m.Called(ctx, companyID, limit, offset, search)
+	return args.Get(0).([]entity.User), args.Error(1)
+}
+
+func (m *UserRepositoryMock) Count(ctx context.Context, companyID uuid.UUID, search string) (int, error) {
+	args := m.Called(ctx, companyID, search)
+	return args.Int(0), args.Error(1)
 }
 
 func (m *AccountRepositoryMock) UpdateBalance(ctx context.Context, id uuid.UUID, amount decimal.Decimal, isDebit bool) error {
@@ -148,14 +227,6 @@ func (m *PeriodRepositoryMock) GetByCompany(ctx context.Context, companyID uuid.
 	return args.Get(0).([]entity.AccountingPeriod), args.Error(1)
 }
 
-func (m *PeriodRepositoryMock) GetActive(ctx context.Context, companyID uuid.UUID) (*entity.AccountingPeriod, error) {
-	args := m.Called(ctx, companyID)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*entity.AccountingPeriod), args.Error(1)
-}
-
 func (m *PeriodRepositoryMock) GetByDate(ctx context.Context, companyID uuid.UUID, date time.Time) (*entity.AccountingPeriod, error) {
 	args := m.Called(ctx, companyID, date)
 	if args.Get(0) == nil {
@@ -172,6 +243,21 @@ func (m *PeriodRepositoryMock) GetOpenPeriods(ctx context.Context, companyID uui
 func (m *PeriodRepositoryMock) Update(ctx context.Context, period *entity.AccountingPeriod) error {
 	args := m.Called(ctx, period)
 	return args.Error(0)
+}
+
+func (m *PeriodRepositoryMock) Delete(ctx context.Context, id uuid.UUID) error {
+	args := m.Called(ctx, id)
+	return args.Error(0)
+}
+
+func (m *PeriodRepositoryMock) List(ctx context.Context, companyID uuid.UUID, limit, offset int, search string) ([]entity.AccountingPeriod, error) {
+	args := m.Called(ctx, companyID, limit, offset, search)
+	return args.Get(0).([]entity.AccountingPeriod), args.Error(1)
+}
+
+func (m *PeriodRepositoryMock) Count(ctx context.Context, companyID uuid.UUID, search string) (int, error) {
+	args := m.Called(ctx, companyID, search)
+	return args.Int(0), args.Error(1)
 }
 
 // AuditLogRepositoryMock mocks the AuditLogRepository interface
