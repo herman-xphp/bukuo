@@ -1,0 +1,19 @@
+DROP INDEX IF EXISTS idx_sales_returns_company;
+DROP INDEX IF EXISTS idx_delivery_orders_company;
+DROP INDEX IF EXISTS idx_sales_invoices_customer;
+DROP INDEX IF EXISTS idx_sales_invoices_company;
+DROP INDEX IF EXISTS idx_sales_orders_customer;
+DROP INDEX IF EXISTS idx_sales_orders_company;
+DROP INDEX IF EXISTS idx_sales_quotations_customer;
+DROP INDEX IF EXISTS idx_sales_quotations_company;
+
+DROP TABLE IF EXISTS sales_return_lines;
+DROP TABLE IF EXISTS sales_returns;
+DROP TABLE IF EXISTS sales_invoice_lines;
+DROP TABLE IF EXISTS sales_invoices;
+DROP TABLE IF EXISTS delivery_order_lines;
+DROP TABLE IF EXISTS delivery_orders;
+DROP TABLE IF EXISTS sales_order_lines;
+DROP TABLE IF EXISTS sales_orders;
+DROP TABLE IF EXISTS sales_quotation_lines;
+DROP TABLE IF EXISTS sales_quotations;

@@ -32,6 +32,7 @@ import (
 	periodUC "github.com/herman-xphp/bukuo/internal/usecase/period"
 	productUC "github.com/herman-xphp/bukuo/internal/usecase/product"
 	reportUC "github.com/herman-xphp/bukuo/internal/usecase/report"
+	salesUC "github.com/herman-xphp/bukuo/internal/usecase/sales"
 	unitUC "github.com/herman-xphp/bukuo/internal/usecase/unit"
 	userUC "github.com/herman-xphp/bukuo/internal/usecase/user"
 	warehouseUC "github.com/herman-xphp/bukuo/internal/usecase/warehouse"
@@ -126,6 +127,7 @@ func main() {
 	exchangerateUsecase := exchangerateUC.NewExchangeRateUsecase(exchangeRateRepo, currencyRepo)
 	warehouseUsecase := warehouseUC.NewWarehouseUsecase(warehouseRepo)
 	inventoryUsecase := inventoryUC.NewInventoryUsecase(inventoryRepo, warehouseRepo, productRepo)
+	salesUsecase := salesUC.NewSalesUsecase()
 
 	// Delivery Layer - HTTP Handlers
 	handlers := &httpDelivery.Handlers{
@@ -146,6 +148,7 @@ func main() {
 		ExchangeRate: handler.NewExchangeRateHandler(exchangerateUsecase),
 		Warehouse:    handler.NewWarehouseHandler(warehouseUsecase),
 		Inventory:    handler.NewInventoryHandler(inventoryUsecase),
+		Sales:        handler.NewSalesHandler(salesUsecase),
 	}
 
 	// Middleware
