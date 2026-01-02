@@ -3,20 +3,23 @@ package account
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/herman-xphp/bukuo/internal/domain/entity"
 	"github.com/herman-xphp/bukuo/internal/domain/repository"
+	"github.com/shopspring/decimal"
 )
 
 // AccountUsecase handles account business logic
 type AccountUsecase struct {
 	accountRepo repository.AccountRepository
+	journalRepo repository.JournalRepository
 }
 
 // NewAccountUsecase creates a new AccountUsecase
-func NewAccountUsecase(ar repository.AccountRepository) *AccountUsecase {
-	return &AccountUsecase{accountRepo: ar}
+func NewAccountUsecase(ar repository.AccountRepository, jr repository.JournalRepository) *AccountUsecase {
+	return &AccountUsecase{accountRepo: ar, journalRepo: jr}
 }
 
 // CreateAccountInput represents input for creating an account
@@ -95,4 +98,92 @@ func (uc *AccountUsecase) UpdateAccount(ctx context.Context, input UpdateAccount
 // DeleteAccount deletes an account
 func (uc *AccountUsecase) DeleteAccount(ctx context.Context, id uuid.UUID) error {
 	return uc.accountRepo.Delete(ctx, id)
+}
+
+// AccountWithBalance represents an account with its calculated balance
+type AccountWithBalance struct {
+	entity.Account
+	Balance decimal.Decimal `json:"balance"`
+}
+
+// GetAccountsWithBalances returns all accounts with their calculated balances
+func (uc *AccountUsecase) GetAccountsWithBalances(ctx context.Context, companyID uuid.UUID) ([]AccountWithBalance, error) {
+	// Get all accounts
+	accounts, err := uc.accountRepo.GetByCompany(ctx, companyID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get all posted journals from the beginning of time to now
+	journals, err := uc.journalRepo.GetByDateRange(ctx, companyID, time.Time{}, time.Now())
+	if err != nil {
+		return nil, err
+	}
+
+	// Calculate balances from posted journals
+	balances := make(map[uuid.UUID]decimal.Decimal)
+	for _, journal := range journals {
+		if journal.Status != entity.JournalStatusPosted {
+			continue
+		}
+		for _, line := range journal.Lines {
+			balances[line.AccountID] = balances[line.AccountID].Add(line.DebitAmount).Sub(line.CreditAmount)
+		}
+	}
+
+	// Create account list with balances
+	result := make([]AccountWithBalance, len(accounts))
+	for i, acc := range accounts {
+		balance := balances[acc.ID]
+		// Adjust for normal balance (Credit accounts like LIABILITY, EQUITY, REVENUE should show positive when negative)
+		if acc.NormalBalance() == "CREDIT" {
+			balance = balance.Neg()
+		}
+		result[i] = AccountWithBalance{
+			Account: acc,
+			Balance: balance,
+		}
+	}
+
+	return result, nil
+}
+
+// List returns all accounts for a company with pagination and balances
+func (uc *AccountUsecase) List(ctx context.Context, companyID uuid.UUID, limit, offset int, search string) ([]AccountWithBalance, int, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	accounts, err := uc.accountRepo.List(ctx, companyID, limit, offset, search)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	total, err := uc.accountRepo.Count(ctx, companyID, search)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	result := make([]AccountWithBalance, len(accounts))
+	for i, acc := range accounts {
+		balance, err := uc.journalRepo.GetBalance(ctx, acc.ID)
+		if err != nil {
+			return nil, 0, err
+		}
+
+		// Adjust for normal balance
+		if acc.NormalBalance() == "CREDIT" {
+			balance = balance.Neg()
+		}
+
+		result[i] = AccountWithBalance{
+			Account: acc,
+			Balance: balance,
+		}
+	}
+
+	return result, total, nil
 }

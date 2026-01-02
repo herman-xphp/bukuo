@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/herman-xphp/bukuo/internal/domain/entity"
@@ -140,4 +141,57 @@ func (r *AccountRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	query := `DELETE FROM accounts WHERE id = $1`
 	_, err := r.db.Exec(ctx, query, id)
 	return err
+}
+
+func (r *AccountRepository) List(ctx context.Context, companyID uuid.UUID, limit, offset int, search string) ([]entity.Account, error) {
+	whereClause := `WHERE company_id = $1`
+	args := []interface{}{companyID}
+
+	if search != "" {
+		whereClause += fmt.Sprintf(` AND (name ILIKE $%d OR code ILIKE $%d)`, len(args)+1, len(args)+1)
+		args = append(args, "%"+search+"%")
+	}
+
+	query := fmt.Sprintf(`
+		SELECT id, company_id, code, name, type, parent_id, is_postable, is_active, description, created_at, updated_at
+		FROM accounts %s ORDER BY code LIMIT $%d OFFSET $%d
+	`, whereClause, len(args)+1, len(args)+2)
+
+	args = append(args, limit, offset)
+
+	rows, err := r.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var accounts []entity.Account
+	for rows.Next() {
+		var acc entity.Account
+		err := rows.Scan(
+			&acc.ID, &acc.CompanyID, &acc.Code, &acc.Name, &acc.Type,
+			&acc.ParentID, &acc.IsPostable, &acc.IsActive, &acc.Description,
+			&acc.CreatedAt, &acc.UpdatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		accounts = append(accounts, acc)
+	}
+	return accounts, nil
+}
+
+func (r *AccountRepository) Count(ctx context.Context, companyID uuid.UUID, search string) (int, error) {
+	whereClause := `WHERE company_id = $1`
+	args := []interface{}{companyID}
+
+	if search != "" {
+		whereClause += fmt.Sprintf(` AND (name ILIKE $%d OR code ILIKE $%d)`, len(args)+1, len(args)+1)
+		args = append(args, "%"+search+"%")
+	}
+
+	query := fmt.Sprintf(`SELECT COUNT(*) FROM accounts %s`, whereClause)
+	var count int
+	err := r.db.QueryRow(ctx, query, args...).Scan(&count)
+	return count, err
 }
