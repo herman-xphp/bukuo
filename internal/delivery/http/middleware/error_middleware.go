@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"runtime/debug"
@@ -53,7 +54,7 @@ func RecoveryHandler(env string) gin.HandlerFunc {
 				}
 
 				if env != "production" {
-					resp.Error = log.Sprintf("Panic: %v", r)
+					resp.Error = fmt.Sprintf("Panic: %v", r)
 				}
 
 				c.AbortWithStatusJSON(http.StatusInternalServerError, resp)
