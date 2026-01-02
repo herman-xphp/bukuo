@@ -16,34 +16,47 @@ type ErrorResponse struct {
 }
 
 // ErrorHandler provides centralized error handling
-func ErrorHandler() gin.HandlerFunc {
+// ErrorHandler provides centralized error handling
+func ErrorHandler(env string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Next()
 
 		// Check for errors
 		if len(c.Errors) > 0 {
 			err := c.Errors.Last()
-
-			c.JSON(http.StatusInternalServerError, ErrorResponse{
+			resp := ErrorResponse{
 				Success: false,
 				Error:   err.Error(),
-			})
+			}
+
+			if env == "production" {
+				resp.Error = "Internal server error"
+			}
+
+			c.JSON(http.StatusInternalServerError, resp)
 		}
 	}
 }
 
 // RecoveryHandler handles panics
-func RecoveryHandler() gin.HandlerFunc {
+// RecoveryHandler handles panics
+func RecoveryHandler(env string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		defer func() {
 			if r := recover(); r != nil {
 				log.Printf("Panic recovered: %v\n%s", r, debug.Stack())
 
-				c.AbortWithStatusJSON(http.StatusInternalServerError, ErrorResponse{
+				resp := ErrorResponse{
 					Success: false,
 					Error:   "Internal server error",
 					Code:    "INTERNAL_ERROR",
-				})
+				}
+
+				if env != "production" {
+					resp.Error = log.Sprintf("Panic: %v", r)
+				}
+
+				c.AbortWithStatusJSON(http.StatusInternalServerError, resp)
 			}
 		}()
 		c.Next()

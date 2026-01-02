@@ -169,7 +169,7 @@ func main() {
 
 	// Global middleware
 	r.Use(middleware.RequestLogger(logger)) // Structured logging
-	r.Use(middleware.RecoveryHandler())
+	r.Use(middleware.RecoveryHandler(cfg.Server.Env))
 	corsConfig := middleware.CORSConfig{
 		AllowedOrigins: cfg.Security.AllowedOrigins,
 		Environment:    cfg.Server.Env,
