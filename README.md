@@ -136,6 +136,31 @@ After starting the server, visit: **http://localhost:8080/swagger/index.html**
 | GET    | `/api/reports/balance-sheet`    | Balance Sheet           | ✅   |
 | GET    | `/api/reports/cash-flow`        | Cash Flow               | ✅   |
 
+### Running the Application
+
+```bash
+go run cmd/api/main.go
+# Server starts at http://localhost:8080
+```
+
+## 🧪 Testing
+
+We provide a comprehensive API test suite using the standard `.http` file format (compatible with VS Code REST Client).
+
+**How to run tests:**
+
+1. Install the [REST Client](https://marketplace.visualstudio.com/items?itemName=humao.rest-client) extension for VS Code.
+2. Open `tests/api.http`.
+3. Click "Send Request" above each API call.
+4. The file is pre-configured with `@baseUrl = http://localhost:8080/api/v1` and chained variables (e.g., login token is automatically captured).
+
+#### Included Scenarios:
+
+- **Authentication**: Login flow and token management.
+- **Master Data**: Creating contacts and products.
+- **Multi-Currency**: Managing currencies and exchange rates.
+- **Inventory/Sales/Purchase**: End-to-end transaction flows.
+
 ### Authentication
 
 ```bash
