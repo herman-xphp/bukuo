@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -251,5 +252,109 @@ func (h *JournalHandler) PendingApprovals(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"data":  result,
 		"count": len(result),
+	})
+}
+
+// List handles GET /journals
+func (h *JournalHandler) List(c *gin.Context) {
+	companyID, _ := uuid.Parse(c.GetString("company_id"))
+
+	// Parse pagination params
+	limit := 50
+	page := 1
+	if l := c.Query("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil {
+			limit = parsed
+		}
+	}
+	if p := c.Query("page"); p != "" {
+		if parsed, err := strconv.Atoi(p); err == nil {
+			page = parsed
+		}
+	}
+	offset := (page - 1) * limit
+	if o := c.Query("offset"); o != "" {
+		if parsed, err := strconv.Atoi(o); err == nil {
+			offset = parsed
+		}
+	}
+
+	// Parse search param
+	search := c.Query("q")
+
+	result, total, err := h.usecase.List(c.Request.Context(), companyID, limit, offset, search)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"data": gin.H{
+			"items":  result,
+			"total":  total,
+			"limit":  limit,
+			"page":   page,
+			"offset": offset,
+		},
+	})
+}
+
+// Update handles PUT /journals/:id
+func (h *JournalHandler) Update(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid journal id"})
+		return
+	}
+
+	var req CreateJournalRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	companyID, _ := uuid.Parse(c.GetString("company_id"))
+	userID, _ := uuid.Parse(c.GetString("user_id"))
+
+	entryDate, err := time.Parse("2006-01-02", req.EntryDate)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid date format, use YYYY-MM-DD"})
+		return
+	}
+
+	input := journal.CreateJournalInput{
+		CompanyID:   companyID,
+		EntryDate:   entryDate,
+		Description: req.Description,
+		CreatedBy:   userID,
+	}
+
+	for _, l := range req.Lines {
+		accountID, err := uuid.Parse(l.AccountID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid account_id"})
+			return
+		}
+
+		debit, _ := decimal.NewFromString(l.DebitAmount)
+		credit, _ := decimal.NewFromString(l.CreditAmount)
+
+		input.Lines = append(input.Lines, journal.JournalLineInput{
+			AccountID:    accountID,
+			Description:  l.Description,
+			DebitAmount:  debit,
+			CreditAmount: credit,
+		})
+	}
+
+	result, err := h.usecase.UpdateJournal(c.Request.Context(), id, input)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Journal updated successfully",
+		"data":    result,
 	})
 }
