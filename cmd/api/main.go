@@ -107,11 +107,14 @@ func main() {
 	warehouseRepo := postgres.NewWarehouseRepository(db)
 	inventoryRepo := postgres.NewInventoryRepository(db)
 
+	// Transaction Manager
+	txManager := postgres.NewTransactionManager(db)
+
 	// JWT Service
 	jwtService := authUC.NewJWTService(cfg.JWT.Secret, cfg.JWT.Expiry)
 
 	// Usecase Layer - Business Logic
-	authUsecase := authUC.NewAuthUsecase(userRepo, companyRepo, jwtService, auditLogRepo, cfg.Security)
+	authUsecase := authUC.NewAuthUsecase(userRepo, companyRepo, jwtService, auditLogRepo, txManager, cfg.Security)
 	accountUsecase := accountUC.NewAccountUsecase(accountRepo, journalRepo)
 	periodUsecase := periodUC.NewPeriodUsecase(periodRepo)
 	journalUsecase := journalUC.NewJournalUsecase(journalRepo, accountRepo, periodRepo, auditLogRepo)

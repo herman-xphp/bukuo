@@ -20,6 +20,7 @@ type AuthUsecase struct {
 	userRepo    repository.UserRepository
 	companyRepo repository.CompanyRepository
 	auditRepo   repository.AuditLogRepository
+	txManager   repository.TransactionManager
 	jwtService  *JWTService
 	securityCfg config.SecurityConfig
 }
@@ -30,12 +31,14 @@ func NewAuthUsecase(
 	cr repository.CompanyRepository,
 	jwt *JWTService,
 	audit repository.AuditLogRepository,
+	tm repository.TransactionManager,
 	secCfg config.SecurityConfig,
 ) *AuthUsecase {
 	return &AuthUsecase{
 		userRepo:    ur,
 		companyRepo: cr,
 		auditRepo:   audit,
+		txManager:   tm,
 		jwtService:  jwt,
 		securityCfg: secCfg,
 	}
@@ -60,38 +63,55 @@ type RegisterOutput struct {
 
 // Register creates a new company and owner user
 func (uc *AuthUsecase) Register(ctx context.Context, input RegisterInput) (*RegisterOutput, error) {
+	var user *entity.User
+	var company *entity.Company
+
 	// Check if email exists
 	existing, _ := uc.userRepo.GetByEmail(ctx, input.Email)
 	if existing != nil {
 		return nil, ErrEmailExists
 	}
 
-	// Create company
-	company := entity.NewCompany(input.CompanyName, "")
-	if err := uc.companyRepo.Create(ctx, company); err != nil {
-		return nil, fmt.Errorf("failed to create company: %w", err)
-	}
+	// Atomic transaction: Create Company + User + Audit Log
+	err := uc.txManager.RunAtomic(ctx, func(ctx context.Context) error {
+		var err error
+		// Create company
+		company = entity.NewCompany(input.CompanyName, "")
+		if err = uc.companyRepo.Create(ctx, company); err != nil {
+			return fmt.Errorf("failed to create company: %w", err)
+		}
 
-	// Create owner user (password validation happens in NewUser)
-	user, err := entity.NewUser(company.ID, input.Email, input.Password, input.Name, entity.UserRoleOwner)
+		// Create owner user (password validation happens in NewUser)
+		user, err = entity.NewUser(company.ID, input.Email, input.Password, input.Name, entity.UserRoleOwner)
+		if err != nil {
+			return err // Returns ErrWeakPassword or ErrInvalidEmail
+		}
+
+		if err := uc.userRepo.Create(ctx, user); err != nil {
+			return fmt.Errorf("failed to save user: %w", err)
+		}
+
+		// Audit log
+		auditLog := entity.NewAuditLog(
+			company.ID, &user.ID, user.Email,
+			entity.AuditActionCreate, "USER", &user.ID,
+			"User registered: "+user.Name,
+			input.IPAddress, input.UserAgent,
+		)
+		// For critical flows like registration, we might want to ensure audit log is also saved successfully
+		// inside the transaction.
+		if err := uc.auditRepo.Create(ctx, auditLog); err != nil {
+			return fmt.Errorf("failed to create audit log: %w", err)
+		}
+
+		return nil
+	})
+
 	if err != nil {
-		return nil, err // Returns ErrWeakPassword or ErrInvalidEmail
+		return nil, err
 	}
 
-	if err := uc.userRepo.Create(ctx, user); err != nil {
-		return nil, fmt.Errorf("failed to save user: %w", err)
-	}
-
-	// Audit log
-	auditLog := entity.NewAuditLog(
-		company.ID, &user.ID, user.Email,
-		entity.AuditActionCreate, "USER", &user.ID,
-		"User registered: "+user.Name,
-		input.IPAddress, input.UserAgent,
-	)
-	_ = uc.auditRepo.Create(ctx, auditLog)
-
-	// Generate token
+	// Generate token (outside transaction, no DB write)
 	token, err := uc.jwtService.GenerateToken(user.ID, company.ID, user.Email, string(user.Role))
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate token: %w", err)
