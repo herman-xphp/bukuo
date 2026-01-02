@@ -13,6 +13,10 @@ TEST_MIGRATE_CMD=migrate -path internal/database/migrations -database "$(TEST_DA
 run:
 	go run cmd/api/main.go
 
+.PHONY: seed
+seed:
+	go run cmd/seeder/main.go
+
 .PHONY: test
 test:
 	@echo "Running tests with TEST_DB_NAME=$(TEST_DB_NAME)..."

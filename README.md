@@ -195,13 +195,17 @@ This command automatically sets `DB_NAME=bukuo_test` to prevent data pollution:
 make test
 ```
 
-### Manual Testing
-
-If you need to run tests manually without Make, ensure you set the environment variable:
-
 ```bash
 export DB_NAME=bukuo_test && go test ./...
 ```
+
+### Manual Testing (API)
+
+Use the included `test.http` file with VS Code [REST Client](https://marketplace.visualstudio.com/items?itemName=humao.rest-client) extension.
+
+1. Open `test.http`
+2. Click "Send Request" above endpoints
+3. Variables (`@authToken`) are automatically handled
 
 ### Test Coverage (Latest Sprint)
 
