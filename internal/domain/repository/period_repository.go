@@ -14,6 +14,9 @@ type PeriodRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*entity.AccountingPeriod, error)
 	GetByDate(ctx context.Context, companyID uuid.UUID, date time.Time) (*entity.AccountingPeriod, error)
 	GetByCompany(ctx context.Context, companyID uuid.UUID) ([]entity.AccountingPeriod, error)
+	List(ctx context.Context, companyID uuid.UUID, limit, offset int, search string) ([]entity.AccountingPeriod, error)
+	Count(ctx context.Context, companyID uuid.UUID, search string) (int, error)
 	GetOpenPeriods(ctx context.Context, companyID uuid.UUID) ([]entity.AccountingPeriod, error)
 	Update(ctx context.Context, period *entity.AccountingPeriod) error
+	Delete(ctx context.Context, id uuid.UUID) error
 }
