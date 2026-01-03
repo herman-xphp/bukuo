@@ -80,7 +80,7 @@ func PrintBanner(cfg *config.Config, dbConnected bool, configErrors, configWarni
 	// Security Status
 	printSection("🔐 SECURITY")
 	printKeyValue("JWT Expiry", formatDuration(cfg.JWT.Expiry))
-	printKeyValue("Rate Limit", fmt.Sprintf("%d req/min", cfg.Security.RateLimitPerMin))
+	printKeyValue("Rate Limit", fmt.Sprintf("%d req/min", cfg.RateLimit.GlobalPerMin))
 	printKeyValue("CORS Origins", formatOrigins(cfg.Security.AllowedOrigins))
 
 	fmt.Println()

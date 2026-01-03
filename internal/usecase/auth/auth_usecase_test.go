@@ -110,8 +110,7 @@ func TestAuthUsecase_Register(t *testing.T) {
 
 	// Config
 	secCfg := config.SecurityConfig{
-		AllowedOrigins:  []string{"*"},
-		RateLimitPerMin: 60,
+		AllowedOrigins: []string{"*"},
 	}
 	jwtService := auth.NewJWTService("secret", time.Hour)
 
