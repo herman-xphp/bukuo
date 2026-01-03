@@ -389,21 +389,189 @@ func (uc *ReportUsecase) GetCashFlow(ctx context.Context, companyID uuid.UUID, s
 	}, nil
 }
 
-// DashboardStats
-type DashboardStats struct {
-	TotalRevenue        decimal.Decimal       `json:"total_revenue"`
-	TotalExpenses       decimal.Decimal       `json:"total_expenses"`
-	NetIncome           decimal.Decimal       `json:"net_income"`
-	ActiveAccounts      int                   `json:"active_accounts"`
-	RecentJournals      []entity.JournalEntry `json:"recent_journals"`
-	RevenueGrowth       float64               `json:"revenue_growth"`
-	ActiveAccountGrowth int                   `json:"active_account_growth"`
+// GetSalesTrend aggregates daily sales for charts
+func (uc *ReportUsecase) GetSalesTrend(ctx context.Context, companyID uuid.UUID, start, end time.Time) ([]entity.SalesTrendItem, error) {
+	// Note: Ideally this should access a SalesRepository.
+	// But since Sales usually post journals, we can also query the JournalRepository filtering by Revenue Accounts,
+	// OR query SalesInvoiceRepository if available.
+	// For now, let's use JournalRepository with AccountTypeRevenue to be generic & consistent with accounting.
+
+	// However, pure sales might be better tracked via invoices for "Sales Trend".
+	// Let's stick to Reporting Logic via Journals (GL) as it's the source of truth for "Realized Revenue".
+
+	journals, err := uc.journalRepo.GetByDateRange(ctx, companyID, start, end)
+	if err != nil {
+		return nil, common.WrapErr("get journals", err)
+	}
+
+	accounts, err := uc.accountRepo.GetByCompany(ctx, companyID)
+	if err != nil {
+		return nil, common.WrapErr("get accounts", err)
+	}
+
+	revenueAccMap := make(map[uuid.UUID]bool)
+	for _, acc := range accounts {
+		if acc.Type == entity.AccountTypeRevenue {
+			revenueAccMap[acc.ID] = true
+		}
+	}
+
+	dailyMap := make(map[string]decimal.Decimal)
+
+	for _, journal := range journals {
+		if journal.Status != entity.JournalStatusPosted {
+			continue
+		}
+
+		dateStr := journal.EntryDate.Format("2006-01-02")
+
+		for _, line := range journal.Lines {
+			if revenueAccMap[line.AccountID] {
+				// Revenue is Credit balance usually.
+				// Credit adds to revenue, Debit reduces it (returns).
+				amount := line.CreditAmount.Sub(line.DebitAmount)
+				dailyMap[dateStr] = dailyMap[dateStr].Add(amount)
+			}
+		}
+	}
+
+	// Fill ALL dates in range
+	var trends []entity.SalesTrendItem
+	for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
+		dateKey := d.Format("2006-01-02")
+		amount := dailyMap[dateKey] // Default zero if not found
+		trends = append(trends, entity.SalesTrendItem{Date: dateKey, Amount: amount})
+	}
+
+	return trends, nil
 }
 
-func (uc *ReportUsecase) GetDashboardStats(ctx context.Context, companyID uuid.UUID) (*DashboardStats, error) {
+// GetExpenseBreakdown aggregates expenses by category (top 5)
+func (uc *ReportUsecase) GetExpenseBreakdown(ctx context.Context, companyID uuid.UUID, start, end time.Time) ([]entity.ExpenseBreakdownItem, error) {
+	journals, err := uc.journalRepo.GetByDateRange(ctx, companyID, start, end)
+	if err != nil {
+		return nil, common.WrapErr("get journals", err)
+	}
+
+	accounts, err := uc.accountRepo.GetByCompany(ctx, companyID)
+	if err != nil {
+		return nil, common.WrapErr("get accounts", err)
+	}
+
+	expenseAccMap := make(map[uuid.UUID]string) // ID -> Account Name (or Child Category if we had it)
+	for _, acc := range accounts {
+		if acc.Type == entity.AccountTypeExpense {
+			expenseAccMap[acc.ID] = acc.Name
+		}
+	}
+
+	categoryTotal := make(map[string]decimal.Decimal)
+	totalExpense := decimal.Zero
+
+	for _, journal := range journals {
+		if journal.Status != entity.JournalStatusPosted {
+			continue
+		}
+
+		for _, line := range journal.Lines {
+			if name, ok := expenseAccMap[line.AccountID]; ok {
+				// Expense is Debit balance.
+				amount := line.DebitAmount.Sub(line.CreditAmount)
+				if amount.IsPositive() {
+					categoryTotal[name] = categoryTotal[name].Add(amount)
+					totalExpense = totalExpense.Add(amount)
+				}
+			}
+		}
+	}
+
+	var breakdown []entity.ExpenseBreakdownItem
+	for cat, amount := range categoryTotal {
+		percentage, _ := amount.Div(totalExpense).Float64()
+		breakdown = append(breakdown, entity.ExpenseBreakdownItem{
+			Category:   cat,
+			Amount:     amount,
+			Percentage: percentage * 100,
+		})
+	}
+
+	// Sort by amount desc? Logic is simple map iteration now.
+	// We can leave sorting to frontend or sort here if needed.
+	// For simplicity, returning unsorted.
+
+	return breakdown, nil
+}
+
+// GetCashFlowTrend Aggregates incoming/outgoing from Cash/Bank accounts
+func (uc *ReportUsecase) GetCashFlowTrend(ctx context.Context, companyID uuid.UUID, start, end time.Time) ([]entity.CashFlowTrendItem, error) {
+	journals, err := uc.journalRepo.GetByDateRange(ctx, companyID, start, end)
+	if err != nil {
+		return nil, common.WrapErr("get journals", err)
+	}
+
+	accounts, err := uc.accountRepo.GetByCompany(ctx, companyID)
+	if err != nil {
+		return nil, common.WrapErr("get accounts", err)
+	}
+
+	cashAccMap := make(map[uuid.UUID]bool)
+	for _, acc := range accounts {
+		// Identify Cash/Bank accounts. Convention: Code starts with '1' and type is Asset?
+		// Better checking Name or SubType if available.
+		// Detailed logic: usually "Cas" or "Bank" in name, or specific AccountTypeAssetCash if we had it.
+		// Re-using logic from GetCashFlow: Code[:1] == "1" && (Name=="Kas" || Name=="Bank") - simplified
+		if len(acc.Code) > 0 && acc.Code[:1] == "1" && (acc.Name == "Kas" || acc.Name == "Bank") {
+			cashAccMap[acc.ID] = true
+		}
+	}
+
+	trendMap := make(map[string]*entity.CashFlowTrendItem)
+
+	for _, journal := range journals {
+		if journal.Status != entity.JournalStatusPosted {
+			continue
+		}
+		dateKey := journal.EntryDate.Format("2006-01-02")
+
+		if _, ok := trendMap[dateKey]; !ok {
+			trendMap[dateKey] = &entity.CashFlowTrendItem{Date: dateKey}
+		}
+		item := trendMap[dateKey]
+
+		for _, line := range journal.Lines {
+			if cashAccMap[line.AccountID] {
+				// Debit = Incoming (Asset increase), Credit = Outgoing
+				if line.DebitAmount.IsPositive() {
+					item.Incoming = item.Incoming.Add(line.DebitAmount)
+				}
+				if line.CreditAmount.IsPositive() {
+					item.Outgoing = item.Outgoing.Add(line.CreditAmount)
+				}
+			}
+		}
+	}
+
+	var trends []entity.CashFlowTrendItem
+	for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
+		dateKey := d.Format("2006-01-02")
+		if item, ok := trendMap[dateKey]; ok {
+			item.NetChange = item.Incoming.Sub(item.Outgoing)
+			trends = append(trends, *item)
+		} else {
+			trends = append(trends, entity.CashFlowTrendItem{Date: dateKey})
+		}
+	}
+
+	return trends, nil
+}
+
+func (uc *ReportUsecase) GetDashboardStats(ctx context.Context, companyID uuid.UUID) (*entity.DashboardStats, error) {
 	now := time.Now()
 	startOfMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.Local)
 	endOfMonth := startOfMonth.AddDate(0, 1, -1)
+
+	// Correct end of month: first day of next month - 1 day
+	endOfMonth = startOfMonth.AddDate(0, 1, 0).Add(-time.Nanosecond)
 
 	incomeStmt, err := uc.GetIncomeStatement(ctx, companyID, startOfMonth, endOfMonth)
 	if err != nil {
@@ -427,8 +595,24 @@ func (uc *ReportUsecase) GetDashboardStats(ctx context.Context, companyID uuid.U
 		return nil, common.WrapErr("get journals", err)
 	}
 
-	return &DashboardStats{
-		TotalRevenue: incomeStmt.TotalRevenue, TotalExpenses: incomeStmt.TotalExpenses, NetIncome: incomeStmt.NetIncome,
-		ActiveAccounts: activeAccounts, RecentJournals: journals, RevenueGrowth: 0, ActiveAccountGrowth: 0,
+	// --- New Visual Data ---
+	salesTrend, _ := uc.GetSalesTrend(ctx, companyID, startOfMonth, endOfMonth)
+	expenseBreakdown, _ := uc.GetExpenseBreakdown(ctx, companyID, startOfMonth, endOfMonth)
+	cashFlowTrend, _ := uc.GetCashFlowTrend(ctx, companyID, startOfMonth, endOfMonth)
+
+	// Calculate growth (simple dummy logic for now as we don't fetch prev month yet)
+	revenueGrowth := 0.0
+
+	return &entity.DashboardStats{
+		TotalRevenue:        incomeStmt.TotalRevenue,
+		TotalExpenses:       incomeStmt.TotalExpenses,
+		NetIncome:           incomeStmt.NetIncome,
+		ActiveAccounts:      activeAccounts,
+		RecentJournals:      journals,
+		RevenueGrowth:       revenueGrowth,
+		ActiveAccountGrowth: 0,
+		SalesTrend:          salesTrend,
+		ExpenseBreakdown:    expenseBreakdown,
+		CashFlowTrend:       cashFlowTrend,
 	}, nil
 }
