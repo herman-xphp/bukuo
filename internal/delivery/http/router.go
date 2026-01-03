@@ -27,6 +27,7 @@ type Handlers struct {
 	Warehouse    *handler.WarehouseHandler
 	Inventory    *handler.InventoryHandler
 	Sales        *handler.SalesHandler
+	Upload       *handler.UploadHandler
 }
 
 // SetupRouter configures all routes
@@ -40,7 +41,11 @@ func SetupRouter(r *gin.Engine, h *Handlers, authMW *middleware.AuthMiddleware) 
 	{
 		auth.POST("/register", h.Auth.Register)
 		auth.POST("/login", h.Auth.Login)
+		auth.POST("/refresh", h.Auth.RefreshToken)
 	}
+
+	// Static file serving for uploads (with security headers)
+	r.GET("/uploads/*filepath", handler.SecureStaticHandler("./uploads"))
 
 	// Protected API routes
 	api := r.Group("/api")
@@ -48,14 +53,24 @@ func SetupRouter(r *gin.Engine, h *Handlers, authMW *middleware.AuthMiddleware) 
 	{
 		// Auth
 		api.GET("/me", h.Auth.Me)
+		api.PUT("/me/profile", h.Auth.UpdateProfile)
+		api.PUT("/me/password", h.Auth.ChangePassword)
+		api.POST("/auth/unlock", h.Auth.Unlock)
+
+		// File Upload
+		api.POST("/upload", h.Upload.Upload)
 
 		// Users (Admin only)
 		users := api.Group("/users")
-		users.Use(authMW.RequireRole(string(entity.UserRoleAdmin)))
+		users.Use(authMW.RequireRole(string(entity.UserRoleAdmin), string(entity.UserRoleOwner)))
 		{
 			users.POST("", h.User.Create)
 			users.GET("", h.User.List)
+			users.GET("/:id", h.User.GetByID)
+			users.PUT("/:id", h.User.Update)
 			users.DELETE("/:id", h.User.Delete)
+			users.POST("/:id/reset-password", h.User.ResetPassword)
+			users.PUT("/:id/pin", h.User.SetPin)
 		}
 
 		// Accounts
@@ -66,7 +81,7 @@ func SetupRouter(r *gin.Engine, h *Handlers, authMW *middleware.AuthMiddleware) 
 
 			// Accountants and Admins can modify
 			protected := accounts.Group("")
-			protected.Use(authMW.RequireRole(string(entity.UserRoleAdmin), string(entity.UserRoleAccountant)))
+			protected.Use(authMW.RequireRole(string(entity.UserRoleAdmin), string(entity.UserRoleOwner), string(entity.UserRoleAccountant)))
 			{
 				protected.POST("", h.Account.Create)
 				protected.PUT("/:id", h.Account.Update)
@@ -81,7 +96,7 @@ func SetupRouter(r *gin.Engine, h *Handlers, authMW *middleware.AuthMiddleware) 
 			contacts.GET("/:id", h.Contact.GetByID)
 
 			protected := contacts.Group("")
-			protected.Use(authMW.RequireRole(string(entity.UserRoleAdmin), string(entity.UserRoleAccountant)))
+			protected.Use(authMW.RequireRole(string(entity.UserRoleAdmin), string(entity.UserRoleOwner), string(entity.UserRoleAccountant)))
 			{
 				protected.POST("", h.Contact.Create)
 				protected.PUT("/:id", h.Contact.Update)
@@ -96,7 +111,7 @@ func SetupRouter(r *gin.Engine, h *Handlers, authMW *middleware.AuthMiddleware) 
 			units.GET("/:id", h.Unit.GetByID)
 
 			protected := units.Group("")
-			protected.Use(authMW.RequireRole(string(entity.UserRoleAdmin), string(entity.UserRoleAccountant)))
+			protected.Use(authMW.RequireRole(string(entity.UserRoleAdmin), string(entity.UserRoleOwner), string(entity.UserRoleAccountant)))
 			{
 				protected.POST("", h.Unit.Create)
 				protected.DELETE("/:id", h.Unit.Delete)
@@ -110,7 +125,7 @@ func SetupRouter(r *gin.Engine, h *Handlers, authMW *middleware.AuthMiddleware) 
 			categories.GET("/:id", h.Category.GetByID)
 
 			protected := categories.Group("")
-			protected.Use(authMW.RequireRole(string(entity.UserRoleAdmin), string(entity.UserRoleAccountant)))
+			protected.Use(authMW.RequireRole(string(entity.UserRoleAdmin), string(entity.UserRoleOwner), string(entity.UserRoleAccountant)))
 			{
 				protected.POST("", h.Category.Create)
 				protected.PUT("/:id", h.Category.Update)
@@ -125,7 +140,7 @@ func SetupRouter(r *gin.Engine, h *Handlers, authMW *middleware.AuthMiddleware) 
 			products.GET("/:id", h.Product.GetByID)
 
 			protected := products.Group("")
-			protected.Use(authMW.RequireRole(string(entity.UserRoleAdmin), string(entity.UserRoleAccountant)))
+			protected.Use(authMW.RequireRole(string(entity.UserRoleAdmin), string(entity.UserRoleOwner), string(entity.UserRoleAccountant)))
 			{
 				protected.POST("", h.Product.Create)
 				protected.PUT("/:id", h.Product.Update)
@@ -141,7 +156,7 @@ func SetupRouter(r *gin.Engine, h *Handlers, authMW *middleware.AuthMiddleware) 
 			currencies.GET("/:id", h.Currency.GetByID)
 
 			protected := currencies.Group("")
-			protected.Use(authMW.RequireRole(string(entity.UserRoleAdmin), string(entity.UserRoleAccountant)))
+			protected.Use(authMW.RequireRole(string(entity.UserRoleAdmin), string(entity.UserRoleOwner), string(entity.UserRoleAccountant)))
 			{
 				protected.POST("", h.Currency.Create)
 				protected.POST("/preset", h.Currency.CreateFromPreset)
@@ -159,7 +174,7 @@ func SetupRouter(r *gin.Engine, h *Handlers, authMW *middleware.AuthMiddleware) 
 			exchangeRates.GET("/:id", h.ExchangeRate.GetByID)
 
 			protected := exchangeRates.Group("")
-			protected.Use(authMW.RequireRole(string(entity.UserRoleAdmin), string(entity.UserRoleAccountant)))
+			protected.Use(authMW.RequireRole(string(entity.UserRoleAdmin), string(entity.UserRoleOwner), string(entity.UserRoleAccountant)))
 			{
 				protected.POST("", h.ExchangeRate.Create)
 				protected.PUT("/:id", h.ExchangeRate.Update)
@@ -174,7 +189,7 @@ func SetupRouter(r *gin.Engine, h *Handlers, authMW *middleware.AuthMiddleware) 
 			warehouses.GET("/:id", h.Warehouse.GetByID)
 
 			protected := warehouses.Group("")
-			protected.Use(authMW.RequireRole(string(entity.UserRoleAdmin), string(entity.UserRoleAccountant)))
+			protected.Use(authMW.RequireRole(string(entity.UserRoleAdmin), string(entity.UserRoleOwner), string(entity.UserRoleAccountant)))
 			{
 				protected.POST("", h.Warehouse.Create)
 				protected.PUT("/:id", h.Warehouse.Update)
@@ -190,7 +205,7 @@ func SetupRouter(r *gin.Engine, h *Handlers, authMW *middleware.AuthMiddleware) 
 			inventory.GET("/transactions", h.Inventory.ListTransactions)
 
 			protected := inventory.Group("")
-			protected.Use(authMW.RequireRole(string(entity.UserRoleAdmin), string(entity.UserRoleAccountant)))
+			protected.Use(authMW.RequireRole(string(entity.UserRoleAdmin), string(entity.UserRoleOwner), string(entity.UserRoleAccountant)))
 			{
 				protected.POST("/stock-in", h.Inventory.StockIn)
 				protected.POST("/stock-out", h.Inventory.StockOut)
@@ -201,13 +216,15 @@ func SetupRouter(r *gin.Engine, h *Handlers, authMW *middleware.AuthMiddleware) 
 		salesGroup := api.Group("/sales")
 		{
 			salesGroup.GET("/invoices", h.Sales.ListInvoices)
+			salesGroup.GET("/invoices/:id", h.Sales.GetInvoice)
 			salesGroup.GET("/orders", h.Sales.ListOrders)
 			salesGroup.GET("/quotations", h.Sales.ListQuotations)
 
 			protected := salesGroup.Group("")
-			protected.Use(authMW.RequireRole(string(entity.UserRoleAdmin), string(entity.UserRoleAccountant)))
+			protected.Use(authMW.RequireRole(string(entity.UserRoleAdmin), string(entity.UserRoleOwner), string(entity.UserRoleAccountant)))
 			{
 				protected.POST("/invoices", h.Sales.CreateInvoice)
+				protected.POST("/invoices/:id/void", h.Sales.VoidInvoice)
 			}
 		}
 
@@ -218,7 +235,7 @@ func SetupRouter(r *gin.Engine, h *Handlers, authMW *middleware.AuthMiddleware) 
 			periods.GET("/:id", h.Period.GetByID)
 
 			protected := periods.Group("")
-			protected.Use(authMW.RequireRole(string(entity.UserRoleAdmin), string(entity.UserRoleAccountant)))
+			protected.Use(authMW.RequireRole(string(entity.UserRoleAdmin), string(entity.UserRoleOwner), string(entity.UserRoleAccountant)))
 			{
 				protected.POST("", h.Period.Create)
 				protected.PUT("/:id", h.Period.Update)
@@ -235,7 +252,7 @@ func SetupRouter(r *gin.Engine, h *Handlers, authMW *middleware.AuthMiddleware) 
 			journals.GET("/:id", h.Journal.GetByID)
 
 			protected := journals.Group("")
-			protected.Use(authMW.RequireRole(string(entity.UserRoleAdmin), string(entity.UserRoleAccountant)))
+			protected.Use(authMW.RequireRole(string(entity.UserRoleAdmin), string(entity.UserRoleOwner), string(entity.UserRoleAccountant)))
 			{
 				protected.POST("", h.Journal.Create)
 				protected.PUT("/:id", h.Journal.Update)
@@ -260,7 +277,7 @@ func SetupRouter(r *gin.Engine, h *Handlers, authMW *middleware.AuthMiddleware) 
 
 		// Closing (Admin/Accountant)
 		closingRoutes := api.Group("/closing")
-		closingRoutes.Use(authMW.RequireRole(string(entity.UserRoleAdmin), string(entity.UserRoleAccountant)))
+		closingRoutes.Use(authMW.RequireRole(string(entity.UserRoleAdmin), string(entity.UserRoleOwner), string(entity.UserRoleAccountant)))
 		{
 			closingRoutes.GET("/preview/:period_id", h.Closing.PreviewClosing)
 			closingRoutes.POST("/period", h.Closing.ClosePeriod)
@@ -268,7 +285,7 @@ func SetupRouter(r *gin.Engine, h *Handlers, authMW *middleware.AuthMiddleware) 
 
 		// Opening Balance (Admin/Accountant)
 		openingRoutes := api.Group("/opening-balance")
-		openingRoutes.Use(authMW.RequireRole(string(entity.UserRoleAdmin), string(entity.UserRoleAccountant)))
+		openingRoutes.Use(authMW.RequireRole(string(entity.UserRoleAdmin), string(entity.UserRoleOwner), string(entity.UserRoleAccountant)))
 		{
 			openingRoutes.GET("/template", h.Opening.Template)
 			openingRoutes.POST("/import", h.Opening.Import)

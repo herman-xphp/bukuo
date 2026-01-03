@@ -44,12 +44,12 @@ CREATE TABLE depreciation_entries (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
     asset_id UUID NOT NULL REFERENCES fixed_assets(id),
-    period_id UUID REFERENCES periods(id),
+    period_id UUID REFERENCES accounting_periods(id),
     depreciation_date DATE NOT NULL,
     depreciation_amount DECIMAL(20, 2) NOT NULL,
     accum_depreciation_after DECIMAL(20, 2) NOT NULL,
     net_book_value_after DECIMAL(20, 2) NOT NULL,
-    journal_id UUID REFERENCES journals(id),
+    journal_id UUID REFERENCES journal_entries(id),
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 

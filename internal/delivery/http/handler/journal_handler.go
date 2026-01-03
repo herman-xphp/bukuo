@@ -1,14 +1,11 @@
 package handler
 
 import (
-	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
+	"github.com/herman-xphp/bukuo/internal/delivery/http/helper"
 	"github.com/herman-xphp/bukuo/internal/usecase/journal"
-	"github.com/shopspring/decimal"
 )
 
 // JournalHandler handles HTTP requests for journals
@@ -40,105 +37,88 @@ type JournalLineRequest struct {
 func (h *JournalHandler) Create(c *gin.Context) {
 	var req CreateJournalRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
 
-	// Get context values (from middleware)
-	companyID, _ := uuid.Parse(c.GetString("company_id"))
-	userID, _ := uuid.Parse(c.GetString("user_id"))
-
-	// Parse date
 	entryDate, err := time.Parse("2006-01-02", req.EntryDate)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid date format, use YYYY-MM-DD"})
+		helper.BadRequestMessage(c, "invalid date format, use YYYY-MM-DD")
 		return
 	}
 
 	// Build input
 	input := journal.CreateJournalInput{
-		CompanyID:   companyID,
+		CompanyID:   helper.GetCompanyID(c),
 		EntryDate:   entryDate,
 		Description: req.Description,
-		CreatedBy:   userID,
+		CreatedBy:   helper.GetUserID(c),
 	}
 
 	// Parse lines
 	for _, l := range req.Lines {
-		accountID, err := uuid.Parse(l.AccountID)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid account_id"})
+		accountID := helper.ParseUUIDString(l.AccountID)
+		if accountID.String() == "00000000-0000-0000-0000-000000000000" {
+			helper.BadRequestMessage(c, "invalid account_id")
 			return
 		}
-
-		debit, _ := decimal.NewFromString(l.DebitAmount)
-		credit, _ := decimal.NewFromString(l.CreditAmount)
 
 		input.Lines = append(input.Lines, journal.JournalLineInput{
 			AccountID:    accountID,
 			Description:  l.Description,
-			DebitAmount:  debit,
-			CreditAmount: credit,
+			DebitAmount:  helper.ParseDecimal(l.DebitAmount),
+			CreditAmount: helper.ParseDecimal(l.CreditAmount),
 		})
 	}
 
-	// Create journal
 	result, err := h.usecase.CreateJournal(c.Request.Context(), input)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{
-		"message": "Journal created successfully",
-		"data":    result,
-	})
+	helper.Created(c, result)
 }
 
 // GetByID handles GET /journals/:id
 func (h *JournalHandler) GetByID(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
+	id, err := helper.ParseUUID(c, "id")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid journal id"})
+		helper.InvalidID(c, "journal")
 		return
 	}
 
 	result, err := h.usecase.GetByID(c.Request.Context(), id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "journal not found"})
+		helper.NotFound(c, "journal")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": result})
+	helper.Success(c, result)
 }
 
 // Post handles POST /journals/:id/post
 func (h *JournalHandler) Post(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
+	id, err := helper.ParseUUID(c, "id")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid journal id"})
+		helper.InvalidID(c, "journal")
 		return
 	}
 
-	userID, _ := uuid.Parse(c.GetString("user_id"))
-
-	result, err := h.usecase.PostJournal(c.Request.Context(), id, userID)
+	result, err := h.usecase.PostJournal(c.Request.Context(), id, helper.GetUserID(c))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"message": "Journal posted successfully",
-		"data":    result,
-	})
+	helper.Success(c, gin.H{"message": "Journal posted successfully", "data": result})
 }
 
 // Reverse handles POST /journals/:id/reverse
 func (h *JournalHandler) Reverse(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
+	id, err := helper.ParseUUID(c, "id")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid journal id"})
+		helper.InvalidID(c, "journal")
 		return
 	}
 
@@ -146,74 +126,60 @@ func (h *JournalHandler) Reverse(c *gin.Context) {
 		ReversalDate string `json:"reversal_date" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
 
 	reversalDate, _ := time.Parse("2006-01-02", req.ReversalDate)
-	userID, _ := uuid.Parse(c.GetString("user_id"))
 
-	result, err := h.usecase.ReverseJournal(c.Request.Context(), id, userID, reversalDate)
+	result, err := h.usecase.ReverseJournal(c.Request.Context(), id, helper.GetUserID(c), reversalDate)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{
-		"message": "Journal reversed successfully",
-		"data":    result,
-	})
+	helper.Created(c, result)
 }
 
 // SubmitForApproval handles POST /journals/:id/submit-approval
 func (h *JournalHandler) SubmitForApproval(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
+	id, err := helper.ParseUUID(c, "id")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid journal id"})
+		helper.InvalidID(c, "journal")
 		return
 	}
 
-	userID, _ := uuid.Parse(c.GetString("user_id"))
-
-	result, err := h.usecase.SubmitForApproval(c.Request.Context(), id, userID)
+	result, err := h.usecase.SubmitForApproval(c.Request.Context(), id, helper.GetUserID(c))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"message": "Journal submitted for approval",
-		"data":    result,
-	})
+	helper.Success(c, gin.H{"message": "Journal submitted for approval", "data": result})
 }
 
 // Approve handles POST /journals/:id/approve
 func (h *JournalHandler) Approve(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
+	id, err := helper.ParseUUID(c, "id")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid journal id"})
+		helper.InvalidID(c, "journal")
 		return
 	}
 
-	approverID, _ := uuid.Parse(c.GetString("user_id"))
-
-	result, err := h.usecase.ApproveJournal(c.Request.Context(), id, approverID)
+	result, err := h.usecase.ApproveJournal(c.Request.Context(), id, helper.GetUserID(c))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"message": "Journal approved",
-		"data":    result,
-	})
+	helper.Success(c, gin.H{"message": "Journal approved", "data": result})
 }
 
 // Reject handles POST /journals/:id/reject
 func (h *JournalHandler) Reject(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
+	id, err := helper.ParseUUID(c, "id")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid journal id"})
+		helper.InvalidID(c, "journal")
 		return
 	}
 
@@ -221,140 +187,91 @@ func (h *JournalHandler) Reject(c *gin.Context) {
 		Reason string `json:"reason" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
 
-	rejectorID, _ := uuid.Parse(c.GetString("user_id"))
-
-	result, err := h.usecase.RejectJournal(c.Request.Context(), id, rejectorID, req.Reason)
+	result, err := h.usecase.RejectJournal(c.Request.Context(), id, helper.GetUserID(c), req.Reason)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"message": "Journal rejected",
-		"data":    result,
-	})
+	helper.Success(c, gin.H{"message": "Journal rejected", "data": result})
 }
 
 // PendingApprovals handles GET /journals/pending
 func (h *JournalHandler) PendingApprovals(c *gin.Context) {
-	companyID, _ := uuid.Parse(c.GetString("company_id"))
-
-	result, err := h.usecase.GetPendingApprovals(c.Request.Context(), companyID)
+	result, err := h.usecase.GetPendingApprovals(c.Request.Context(), helper.GetCompanyID(c))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		helper.InternalError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"data":  result,
-		"count": len(result),
-	})
+	helper.Success(c, gin.H{"data": result, "count": len(result)})
 }
 
 // List handles GET /journals
 func (h *JournalHandler) List(c *gin.Context) {
-	companyID, _ := uuid.Parse(c.GetString("company_id"))
-
-	// Parse pagination params
-	limit := 50
-	page := 1
-	if l := c.Query("limit"); l != "" {
-		if parsed, err := strconv.Atoi(l); err == nil {
-			limit = parsed
-		}
-	}
-	if p := c.Query("page"); p != "" {
-		if parsed, err := strconv.Atoi(p); err == nil {
-			page = parsed
-		}
-	}
-	offset := (page - 1) * limit
-	if o := c.Query("offset"); o != "" {
-		if parsed, err := strconv.Atoi(o); err == nil {
-			offset = parsed
-		}
-	}
-
-	// Parse search param
+	p := helper.ParsePagination(c)
 	search := c.Query("q")
 
-	result, total, err := h.usecase.List(c.Request.Context(), companyID, limit, offset, search)
+	result, total, err := h.usecase.List(c.Request.Context(), helper.GetCompanyID(c), p.Limit, p.Offset, search)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		helper.InternalError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"data": gin.H{
-			"items":  result,
-			"total":  total,
-			"limit":  limit,
-			"page":   page,
-			"offset": offset,
-		},
-	})
+	helper.PaginatedItems(c, result, int64(total), p)
 }
 
 // Update handles PUT /journals/:id
 func (h *JournalHandler) Update(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
+	id, err := helper.ParseUUID(c, "id")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid journal id"})
+		helper.InvalidID(c, "journal")
 		return
 	}
 
 	var req CreateJournalRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
 
-	companyID, _ := uuid.Parse(c.GetString("company_id"))
-	userID, _ := uuid.Parse(c.GetString("user_id"))
-
 	entryDate, err := time.Parse("2006-01-02", req.EntryDate)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid date format, use YYYY-MM-DD"})
+		helper.BadRequestMessage(c, "invalid date format, use YYYY-MM-DD")
 		return
 	}
 
 	input := journal.CreateJournalInput{
-		CompanyID:   companyID,
+		CompanyID:   helper.GetCompanyID(c),
 		EntryDate:   entryDate,
 		Description: req.Description,
-		CreatedBy:   userID,
+		CreatedBy:   helper.GetUserID(c),
 	}
 
 	for _, l := range req.Lines {
-		accountID, err := uuid.Parse(l.AccountID)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid account_id"})
+		accountID := helper.ParseUUIDString(l.AccountID)
+		if accountID.String() == "00000000-0000-0000-0000-000000000000" {
+			helper.BadRequestMessage(c, "invalid account_id")
 			return
 		}
-
-		debit, _ := decimal.NewFromString(l.DebitAmount)
-		credit, _ := decimal.NewFromString(l.CreditAmount)
 
 		input.Lines = append(input.Lines, journal.JournalLineInput{
 			AccountID:    accountID,
 			Description:  l.Description,
-			DebitAmount:  debit,
-			CreditAmount: credit,
+			DebitAmount:  helper.ParseDecimal(l.DebitAmount),
+			CreditAmount: helper.ParseDecimal(l.CreditAmount),
 		})
 	}
 
 	result, err := h.usecase.UpdateJournal(c.Request.Context(), id, input)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"message": "Journal updated successfully",
-		"data":    result,
-	})
+	helper.Success(c, result)
 }

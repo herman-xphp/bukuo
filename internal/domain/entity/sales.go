@@ -101,6 +101,7 @@ type SalesInvoice struct {
 	Notes          string             `json:"notes,omitempty"`
 	JournalID      *uuid.UUID         `json:"journal_id,omitempty"` // Auto-generated journal
 	Lines          []SalesInvoiceLine `json:"lines,omitempty"`
+	Customer       *Customer          `json:"customer,omitempty"` // Populated via Join
 	CreatedAt      time.Time          `json:"created_at"`
 	UpdatedAt      time.Time          `json:"updated_at"`
 }

@@ -3,12 +3,12 @@ package exchangerate
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/herman-xphp/bukuo/internal/domain/entity"
 	"github.com/herman-xphp/bukuo/internal/domain/repository"
+	"github.com/herman-xphp/bukuo/internal/usecase/common"
 	"github.com/shopspring/decimal"
 )
 
@@ -27,10 +27,7 @@ type ExchangeRateUsecase struct {
 
 // NewExchangeRateUsecase creates a new ExchangeRateUsecase
 func NewExchangeRateUsecase(er repository.ExchangeRateRepository, cr repository.CurrencyRepository) *ExchangeRateUsecase {
-	return &ExchangeRateUsecase{
-		exchangeRateRepo: er,
-		currencyRepo:     cr,
-	}
+	return &ExchangeRateUsecase{exchangeRateRepo: er, currencyRepo: cr}
 }
 
 // CreateExchangeRateInput represents input for creating an exchange rate
@@ -44,12 +41,9 @@ type CreateExchangeRateInput struct {
 
 // CreateExchangeRate creates a new exchange rate
 func (uc *ExchangeRateUsecase) CreateExchangeRate(ctx context.Context, input CreateExchangeRateInput) (*entity.ExchangeRate, error) {
-	// Validate same currency
 	if input.FromCurrencyID == input.ToCurrencyID {
 		return nil, ErrSameCurrency
 	}
-
-	// Validate rate
 	if input.Rate.LessThanOrEqual(decimal.Zero) {
 		return nil, ErrInvalidRate
 	}
@@ -57,7 +51,7 @@ func (uc *ExchangeRateUsecase) CreateExchangeRate(ctx context.Context, input Cre
 	rate := entity.NewExchangeRate(input.CompanyID, input.FromCurrencyID, input.ToCurrencyID, input.Rate, input.EffectiveDate)
 
 	if err := uc.exchangeRateRepo.Create(ctx, rate); err != nil {
-		return nil, fmt.Errorf("failed to create exchange rate: %w", err)
+		return nil, common.WrapErr("create exchange rate", err)
 	}
 
 	return rate, nil
@@ -84,7 +78,11 @@ func (uc *ExchangeRateUsecase) GetLatestRate(ctx context.Context, companyID, fro
 
 // List retrieves exchange rates
 func (uc *ExchangeRateUsecase) List(ctx context.Context, companyID uuid.UUID, fromCurrencyID, toCurrencyID *uuid.UUID) ([]entity.ExchangeRate, error) {
-	return uc.exchangeRateRepo.List(ctx, companyID, fromCurrencyID, toCurrencyID)
+	rates, err := uc.exchangeRateRepo.List(ctx, companyID, fromCurrencyID, toCurrencyID)
+	if err != nil {
+		return nil, common.WrapErr("list exchange rates", err)
+	}
+	return rates, nil
 }
 
 // ConvertInput represents input for currency conversion
@@ -106,7 +104,6 @@ type ConvertOutput struct {
 
 // Convert converts an amount from one currency to another
 func (uc *ExchangeRateUsecase) Convert(ctx context.Context, input ConvertInput) (*ConvertOutput, error) {
-	// Same currency - no conversion needed
 	if input.FromCurrencyID == input.ToCurrencyID {
 		return &ConvertOutput{
 			FromAmount:   input.Amount,
@@ -143,7 +140,7 @@ func (uc *ExchangeRateUsecase) UpdateExchangeRate(ctx context.Context, companyID
 	exchangeRate.Rate = rate
 
 	if err := uc.exchangeRateRepo.Update(ctx, exchangeRate); err != nil {
-		return nil, fmt.Errorf("failed to update exchange rate: %w", err)
+		return nil, common.WrapErr("update exchange rate", err)
 	}
 
 	return exchangeRate, nil
@@ -151,10 +148,11 @@ func (uc *ExchangeRateUsecase) UpdateExchangeRate(ctx context.Context, companyID
 
 // DeleteExchangeRate deletes an exchange rate
 func (uc *ExchangeRateUsecase) DeleteExchangeRate(ctx context.Context, companyID, id uuid.UUID) error {
-	_, err := uc.exchangeRateRepo.GetByID(ctx, companyID, id)
-	if err != nil {
+	if _, err := uc.exchangeRateRepo.GetByID(ctx, companyID, id); err != nil {
 		return ErrExchangeRateNotFound
 	}
-
-	return uc.exchangeRateRepo.Delete(ctx, companyID, id)
+	if err := uc.exchangeRateRepo.Delete(ctx, companyID, id); err != nil {
+		return common.WrapErr("delete exchange rate", err)
+	}
+	return nil
 }

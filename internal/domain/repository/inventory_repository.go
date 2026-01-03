@@ -44,4 +44,5 @@ type InventoryRepository interface {
 	GetStockByWarehouse(ctx context.Context, companyID, warehouseID uuid.UUID) ([]entity.ProductStock, error)
 	UpdateStock(ctx context.Context, stock *entity.ProductStock) error
 	GetTotalStock(ctx context.Context, companyID, productID uuid.UUID) (*entity.ProductStock, error)
+	ListStocks(ctx context.Context, companyID uuid.UUID) ([]entity.ProductStock, error)
 }

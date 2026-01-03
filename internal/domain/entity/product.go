@@ -25,6 +25,7 @@ type Product struct {
 	CategoryID         *uuid.UUID      `json:"category_id,omitempty"`
 	UnitID             uuid.UUID       `json:"unit_id"`
 	Description        string          `json:"description,omitempty"`
+	ImageURL           *string         `json:"image_url,omitempty"`
 	SalesPrice         decimal.Decimal `json:"sales_price"`
 	PurchasePrice      decimal.Decimal `json:"purchase_price"`
 	SalesAccountID     uuid.UUID       `json:"sales_account_id"`     // Revenue account

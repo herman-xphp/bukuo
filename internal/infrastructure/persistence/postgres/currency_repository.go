@@ -2,24 +2,23 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/herman-xphp/bukuo/internal/domain/entity"
 	"github.com/herman-xphp/bukuo/internal/domain/repository"
+	"github.com/herman-xphp/bukuo/internal/infrastructure/persistence/postgres/querybuilder"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Verify interface implementation at compile time
 var _ repository.CurrencyRepository = (*CurrencyRepository)(nil)
 var _ repository.ExchangeRateRepository = (*ExchangeRateRepository)(nil)
 
-// CurrencyRepository implements repository.CurrencyRepository for PostgreSQL
 type CurrencyRepository struct {
 	db *pgxpool.Pool
 }
 
-// NewCurrencyRepository creates a new CurrencyRepository
 func NewCurrencyRepository(db *pgxpool.Pool) *CurrencyRepository {
 	return &CurrencyRepository{db: db}
 }
@@ -98,9 +97,8 @@ func (r *CurrencyRepository) List(ctx context.Context, companyID uuid.UUID) ([]e
 	var currencies []entity.Currency
 	for rows.Next() {
 		var c entity.Currency
-		err := rows.Scan(&c.ID, &c.CompanyID, &c.Code, &c.Name, &c.Symbol,
-			&c.DecimalPlaces, &c.IsBase, &c.IsActive, &c.CreatedAt)
-		if err != nil {
+		if err := rows.Scan(&c.ID, &c.CompanyID, &c.Code, &c.Name, &c.Symbol,
+			&c.DecimalPlaces, &c.IsBase, &c.IsActive, &c.CreatedAt); err != nil {
 			return nil, err
 		}
 		currencies = append(currencies, c)
@@ -125,13 +123,11 @@ func (r *CurrencyRepository) SetBaseCurrency(ctx context.Context, companyID, cur
 	}
 	defer tx.Rollback(ctx)
 
-	// Unset all base currencies for this company
 	_, err = tx.Exec(ctx, `UPDATE currencies SET is_base = false WHERE company_id = $1`, companyID)
 	if err != nil {
 		return err
 	}
 
-	// Set the new base currency
 	_, err = tx.Exec(ctx, `UPDATE currencies SET is_base = true WHERE company_id = $1 AND id = $2`, companyID, currencyID)
 	if err != nil {
 		return err
@@ -153,12 +149,11 @@ func (r *CurrencyRepository) ExistsByCode(ctx context.Context, companyID uuid.UU
 	return exists, err
 }
 
-// ExchangeRateRepository implements repository.ExchangeRateRepository for PostgreSQL
+// ExchangeRateRepository
 type ExchangeRateRepository struct {
 	db *pgxpool.Pool
 }
 
-// NewExchangeRateRepository creates a new ExchangeRateRepository
 func NewExchangeRateRepository(db *pgxpool.Pool) *ExchangeRateRepository {
 	return &ExchangeRateRepository{db: db}
 }
@@ -214,27 +209,22 @@ func (r *ExchangeRateRepository) GetLatestRate(ctx context.Context, companyID, f
 }
 
 func (r *ExchangeRateRepository) List(ctx context.Context, companyID uuid.UUID, fromCurrencyID, toCurrencyID *uuid.UUID) ([]entity.ExchangeRate, error) {
-	query := `
-		SELECT id, company_id, from_currency_id, to_currency_id, rate, effective_date, created_at
-		FROM exchange_rates WHERE company_id = $1
-	`
-	args := []interface{}{companyID}
-	argPos := 2
+	qb := querybuilder.New()
+	qb.AddCondition("company_id = $%d", companyID)
 
 	if fromCurrencyID != nil {
-		query += ` AND from_currency_id = $` + string(rune('0'+argPos))
-		args = append(args, *fromCurrencyID)
-		argPos++
+		qb.AddCondition("from_currency_id = $%d", *fromCurrencyID)
 	}
-
 	if toCurrencyID != nil {
-		query += ` AND to_currency_id = $` + string(rune('0'+argPos))
-		args = append(args, *toCurrencyID)
+		qb.AddCondition("to_currency_id = $%d", *toCurrencyID)
 	}
 
-	query += ` ORDER BY effective_date DESC`
+	query := fmt.Sprintf(`
+		SELECT id, company_id, from_currency_id, to_currency_id, rate, effective_date, created_at
+		FROM exchange_rates WHERE %s ORDER BY effective_date DESC
+	`, qb.WhereClause())
 
-	rows, err := r.db.Query(ctx, query, args...)
+	rows, err := r.db.Query(ctx, query, qb.Args()...)
 	if err != nil {
 		return nil, err
 	}
@@ -243,9 +233,8 @@ func (r *ExchangeRateRepository) List(ctx context.Context, companyID uuid.UUID, 
 	var rates []entity.ExchangeRate
 	for rows.Next() {
 		var er entity.ExchangeRate
-		err := rows.Scan(&er.ID, &er.CompanyID, &er.FromCurrencyID, &er.ToCurrencyID,
-			&er.Rate, &er.EffectiveDate, &er.CreatedAt)
-		if err != nil {
+		if err := rows.Scan(&er.ID, &er.CompanyID, &er.FromCurrencyID, &er.ToCurrencyID,
+			&er.Rate, &er.EffectiveDate, &er.CreatedAt); err != nil {
 			return nil, err
 		}
 		rates = append(rates, er)

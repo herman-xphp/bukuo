@@ -61,4 +61,9 @@ type ProductStock struct {
 	Quantity    decimal.Decimal `json:"quantity"`
 	AverageCost decimal.Decimal `json:"average_cost"`
 	UpdatedAt   time.Time       `json:"updated_at"`
+
+	// View Fields
+	ProductName   string `json:"product_name,omitempty"`
+	ProductCode   string `json:"code,omitempty"` // Frontend uses 'code' now
+	WarehouseName string `json:"warehouse_name,omitempty"`
 }

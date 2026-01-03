@@ -2,14 +2,11 @@ package handler
 
 import (
 	"errors"
-	"net/http"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
+	"github.com/herman-xphp/bukuo/internal/delivery/http/helper"
 	"github.com/herman-xphp/bukuo/internal/domain/entity"
 	"github.com/herman-xphp/bukuo/internal/usecase/product"
-	"github.com/shopspring/decimal"
 )
 
 // ProductHandler handles product endpoints
@@ -42,96 +39,49 @@ type CreateProductRequest struct {
 func (h *ProductHandler) Create(c *gin.Context) {
 	var req CreateProductRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
 
-	companyID, _ := uuid.Parse(c.GetString("company_id"))
-	unitID, _ := uuid.Parse(req.UnitID)
-	salesAccountID, _ := uuid.Parse(req.SalesAccountID)
-	purchaseAccountID, _ := uuid.Parse(req.PurchaseAccountID)
-
-	var categoryID *uuid.UUID
-	if req.CategoryID != nil {
-		id, _ := uuid.Parse(*req.CategoryID)
-		categoryID = &id
-	}
-
-	var inventoryAccountID *uuid.UUID
-	if req.InventoryAccountID != nil {
-		id, _ := uuid.Parse(*req.InventoryAccountID)
-		inventoryAccountID = &id
-	}
-
-	salesPrice := decimal.Zero
-	if req.SalesPrice != "" {
-		sp, _ := decimal.NewFromString(req.SalesPrice)
-		salesPrice = sp
-	}
-
-	purchasePrice := decimal.Zero
-	if req.PurchasePrice != "" {
-		pp, _ := decimal.NewFromString(req.PurchasePrice)
-		purchasePrice = pp
-	}
-
-	minStock := decimal.Zero
-	if req.MinStock != "" {
-		ms, _ := decimal.NewFromString(req.MinStock)
-		minStock = ms
-	}
-
 	input := product.CreateProductInput{
-		CompanyID:          companyID,
+		CompanyID:          helper.GetCompanyID(c),
 		Code:               req.Code,
 		Name:               req.Name,
 		Type:               entity.ProductType(req.Type),
-		CategoryID:         categoryID,
-		UnitID:             unitID,
+		CategoryID:         helper.ParseOptionalUUID(req.CategoryID),
+		UnitID:             helper.ParseUUIDString(req.UnitID),
 		Description:        req.Description,
-		SalesPrice:         salesPrice,
-		PurchasePrice:      purchasePrice,
-		SalesAccountID:     salesAccountID,
-		PurchaseAccountID:  purchaseAccountID,
-		InventoryAccountID: inventoryAccountID,
-		MinStock:           minStock,
+		SalesPrice:         helper.ParseDecimal(req.SalesPrice),
+		PurchasePrice:      helper.ParseDecimal(req.PurchasePrice),
+		SalesAccountID:     helper.ParseUUIDString(req.SalesAccountID),
+		PurchaseAccountID:  helper.ParseUUIDString(req.PurchaseAccountID),
+		InventoryAccountID: helper.ParseOptionalUUID(req.InventoryAccountID),
+		MinStock:           helper.ParseDecimal(req.MinStock),
 	}
 
 	result, err := h.usecase.CreateProduct(c.Request.Context(), input)
 	if err != nil {
-		status := http.StatusBadRequest
 		if errors.Is(err, product.ErrProductCodeExists) {
-			status = http.StatusConflict
+			helper.Conflict(c, err)
+			return
 		}
-		c.JSON(status, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"data": result})
+	helper.Created(c, result)
 }
 
 // List handles GET /products
 func (h *ProductHandler) List(c *gin.Context) {
-	companyID, _ := uuid.Parse(c.GetString("company_id"))
-
-	page := 1
-	pageSize := 20
-	if p := c.Query("page"); p != "" {
-		if parsed, err := strconv.Atoi(p); err == nil {
-			page = parsed
-		}
-	}
-	if ps := c.Query("page_size"); ps != "" {
-		if parsed, err := strconv.Atoi(ps); err == nil {
-			pageSize = parsed
-		}
-	}
+	companyID := helper.GetCompanyID(c)
+	p := helper.ParsePagination(c)
 
 	input := product.ListInput{
 		CompanyID: companyID,
 		Search:    c.Query("q"),
-		Page:      page,
-		PageSize:  pageSize,
+		Page:      p.Page,
+		PageSize:  p.PageSize,
 	}
 
 	// Filter by product type
@@ -142,49 +92,38 @@ func (h *ProductHandler) List(c *gin.Context) {
 
 	// Filter by category
 	if cat := c.Query("category_id"); cat != "" {
-		catID, _ := uuid.Parse(cat)
+		catID := helper.ParseUUIDString(cat)
 		input.CategoryID = &catID
 	}
 
 	// Filter by active status
-	if a := c.Query("active"); a != "" {
-		active := a == "true"
-		input.IsActive = &active
-	}
+	input.IsActive = helper.ParseQueryBool(c, "active")
 
 	result, err := h.usecase.List(c.Request.Context(), input)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		helper.InternalError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"data": gin.H{
-			"items":       result.Products,
-			"total":       result.Total,
-			"page":        result.Page,
-			"page_size":   result.PageSize,
-			"total_pages": result.TotalPages,
-		},
-	})
+	helper.PaginatedItems(c, result.Products, int64(result.Total), p)
 }
 
 // GetByID handles GET /products/:id
 func (h *ProductHandler) GetByID(c *gin.Context) {
-	companyID, _ := uuid.Parse(c.GetString("company_id"))
-	id, err := uuid.Parse(c.Param("id"))
+	companyID := helper.GetCompanyID(c)
+	id, err := helper.ParseUUID(c, "id")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid product id"})
+		helper.InvalidID(c, "product")
 		return
 	}
 
 	result, err := h.usecase.GetByID(c.Request.Context(), companyID, id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "product not found"})
+		helper.NotFound(c, "product")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": result})
+	helper.Success(c, result)
 }
 
 // UpdateProductRequest represents update product request
@@ -194,6 +133,7 @@ type UpdateProductRequest struct {
 	CategoryID         *string `json:"category_id"`
 	UnitID             string  `json:"unit_id" binding:"required"`
 	Description        string  `json:"description"`
+	ImageURL           *string `json:"image_url"`
 	SalesPrice         string  `json:"sales_price"`
 	PurchasePrice      string  `json:"purchase_price"`
 	SalesAccountID     string  `json:"sales_account_id" binding:"required"`
@@ -205,51 +145,17 @@ type UpdateProductRequest struct {
 
 // Update handles PUT /products/:id
 func (h *ProductHandler) Update(c *gin.Context) {
-	companyID, _ := uuid.Parse(c.GetString("company_id"))
-	id, err := uuid.Parse(c.Param("id"))
+	companyID := helper.GetCompanyID(c)
+	id, err := helper.ParseUUID(c, "id")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid product id"})
+		helper.InvalidID(c, "product")
 		return
 	}
 
 	var req UpdateProductRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
-	}
-
-	unitID, _ := uuid.Parse(req.UnitID)
-	salesAccountID, _ := uuid.Parse(req.SalesAccountID)
-	purchaseAccountID, _ := uuid.Parse(req.PurchaseAccountID)
-
-	var categoryID *uuid.UUID
-	if req.CategoryID != nil {
-		catID, _ := uuid.Parse(*req.CategoryID)
-		categoryID = &catID
-	}
-
-	var inventoryAccountID *uuid.UUID
-	if req.InventoryAccountID != nil {
-		invID, _ := uuid.Parse(*req.InventoryAccountID)
-		inventoryAccountID = &invID
-	}
-
-	salesPrice := decimal.Zero
-	if req.SalesPrice != "" {
-		sp, _ := decimal.NewFromString(req.SalesPrice)
-		salesPrice = sp
-	}
-
-	purchasePrice := decimal.Zero
-	if req.PurchasePrice != "" {
-		pp, _ := decimal.NewFromString(req.PurchasePrice)
-		purchasePrice = pp
-	}
-
-	minStock := decimal.Zero
-	if req.MinStock != "" {
-		ms, _ := decimal.NewFromString(req.MinStock)
-		minStock = ms
 	}
 
 	input := product.UpdateProductInput{
@@ -257,48 +163,49 @@ func (h *ProductHandler) Update(c *gin.Context) {
 		ID:                 id,
 		Name:               req.Name,
 		Type:               entity.ProductType(req.Type),
-		CategoryID:         categoryID,
-		UnitID:             unitID,
+		CategoryID:         helper.ParseOptionalUUID(req.CategoryID),
+		UnitID:             helper.ParseUUIDString(req.UnitID),
 		Description:        req.Description,
-		SalesPrice:         salesPrice,
-		PurchasePrice:      purchasePrice,
-		SalesAccountID:     salesAccountID,
-		PurchaseAccountID:  purchaseAccountID,
-		InventoryAccountID: inventoryAccountID,
-		MinStock:           minStock,
+		ImageURL:           req.ImageURL,
+		SalesPrice:         helper.ParseDecimal(req.SalesPrice),
+		PurchasePrice:      helper.ParseDecimal(req.PurchasePrice),
+		SalesAccountID:     helper.ParseUUIDString(req.SalesAccountID),
+		PurchaseAccountID:  helper.ParseUUIDString(req.PurchaseAccountID),
+		InventoryAccountID: helper.ParseOptionalUUID(req.InventoryAccountID),
+		MinStock:           helper.ParseDecimal(req.MinStock),
 		IsActive:           req.IsActive,
 	}
 
 	result, err := h.usecase.UpdateProduct(c.Request.Context(), input)
 	if err != nil {
-		status := http.StatusBadRequest
 		if errors.Is(err, product.ErrProductNotFound) {
-			status = http.StatusNotFound
+			helper.NotFound(c, "product")
+			return
 		}
-		c.JSON(status, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": result})
+	helper.Success(c, result)
 }
 
 // Delete handles DELETE /products/:id
 func (h *ProductHandler) Delete(c *gin.Context) {
-	companyID, _ := uuid.Parse(c.GetString("company_id"))
-	id, err := uuid.Parse(c.Param("id"))
+	companyID := helper.GetCompanyID(c)
+	id, err := helper.ParseUUID(c, "id")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid product id"})
+		helper.InvalidID(c, "product")
 		return
 	}
 
 	if err := h.usecase.DeleteProduct(c.Request.Context(), companyID, id); err != nil {
-		status := http.StatusBadRequest
 		if errors.Is(err, product.ErrProductNotFound) {
-			status = http.StatusNotFound
+			helper.NotFound(c, "product")
+			return
 		}
-		c.JSON(status, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "product deleted"})
+	helper.Deleted(c, "product")
 }

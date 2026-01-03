@@ -2,10 +2,9 @@ package handler
 
 import (
 	"errors"
-	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
+	"github.com/herman-xphp/bukuo/internal/delivery/http/helper"
 	"github.com/herman-xphp/bukuo/internal/usecase/warehouse"
 )
 
@@ -26,53 +25,69 @@ type CreateWarehouseRequest struct {
 func (h *WarehouseHandler) Create(c *gin.Context) {
 	var req CreateWarehouseRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
-	companyID, _ := uuid.Parse(c.GetString("company_id"))
+
 	result, err := h.usecase.CreateWarehouse(c.Request.Context(), warehouse.CreateWarehouseInput{
-		CompanyID: companyID, Code: req.Code, Name: req.Name, Address: req.Address,
+		CompanyID: helper.GetCompanyID(c),
+		Code:      req.Code,
+		Name:      req.Name,
+		Address:   req.Address,
 	})
 	if err != nil {
-		status := http.StatusBadRequest
 		if errors.Is(err, warehouse.ErrWarehouseCodeExists) {
-			status = http.StatusConflict
+			helper.Conflict(c, err)
+			return
 		}
-		c.JSON(status, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
-	c.JSON(http.StatusCreated, gin.H{"data": result})
+
+	helper.Created(c, result)
 }
 
 func (h *WarehouseHandler) List(c *gin.Context) {
-	companyID, _ := uuid.Parse(c.GetString("company_id"))
-	warehouses, err := h.usecase.List(c.Request.Context(), companyID)
+	warehouses, err := h.usecase.List(c.Request.Context(), helper.GetCompanyID(c))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		helper.InternalError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": warehouses})
+
+	helper.Success(c, warehouses)
 }
 
 func (h *WarehouseHandler) GetByID(c *gin.Context) {
-	companyID, _ := uuid.Parse(c.GetString("company_id"))
-	id, _ := uuid.Parse(c.Param("id"))
-	result, err := h.usecase.GetByID(c.Request.Context(), companyID, id)
+	companyID := helper.GetCompanyID(c)
+	id, err := helper.ParseUUID(c, "id")
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "warehouse not found"})
+		helper.InvalidID(c, "warehouse")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": result})
+
+	result, err := h.usecase.GetByID(c.Request.Context(), companyID, id)
+	if err != nil {
+		helper.NotFound(c, "warehouse")
+		return
+	}
+
+	helper.Success(c, result)
 }
 
 func (h *WarehouseHandler) SetDefault(c *gin.Context) {
-	companyID, _ := uuid.Parse(c.GetString("company_id"))
-	id, _ := uuid.Parse(c.Param("id"))
-	if err := h.usecase.SetDefault(c.Request.Context(), companyID, id); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	companyID := helper.GetCompanyID(c)
+	id, err := helper.ParseUUID(c, "id")
+	if err != nil {
+		helper.InvalidID(c, "warehouse")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "default warehouse updated"})
+
+	if err := h.usecase.SetDefault(c.Request.Context(), companyID, id); err != nil {
+		helper.BadRequest(c, err)
+		return
+	}
+
+	helper.Message(c, "default warehouse updated")
 }
 
 type UpdateWarehouseRequest struct {
@@ -81,27 +96,40 @@ type UpdateWarehouseRequest struct {
 }
 
 func (h *WarehouseHandler) Update(c *gin.Context) {
-	companyID, _ := uuid.Parse(c.GetString("company_id"))
-	id, _ := uuid.Parse(c.Param("id"))
+	companyID := helper.GetCompanyID(c)
+	id, err := helper.ParseUUID(c, "id")
+	if err != nil {
+		helper.InvalidID(c, "warehouse")
+		return
+	}
+
 	var req UpdateWarehouseRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
+
 	result, err := h.usecase.Update(c.Request.Context(), companyID, id, req.Name, req.Address)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": result})
+
+	helper.Success(c, result)
 }
 
 func (h *WarehouseHandler) Delete(c *gin.Context) {
-	companyID, _ := uuid.Parse(c.GetString("company_id"))
-	id, _ := uuid.Parse(c.Param("id"))
-	if err := h.usecase.Delete(c.Request.Context(), companyID, id); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	companyID := helper.GetCompanyID(c)
+	id, err := helper.ParseUUID(c, "id")
+	if err != nil {
+		helper.InvalidID(c, "warehouse")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "warehouse deleted"})
+
+	if err := h.usecase.Delete(c.Request.Context(), companyID, id); err != nil {
+		helper.BadRequest(c, err)
+		return
+	}
+
+	helper.Deleted(c, "warehouse")
 }

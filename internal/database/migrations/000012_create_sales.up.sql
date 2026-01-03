@@ -101,7 +101,7 @@ CREATE TABLE sales_invoices (
     total DECIMAL(20, 2) DEFAULT 0,
     paid_amount DECIMAL(20, 2) DEFAULT 0,
     notes TEXT,
-    journal_id UUID REFERENCES journals(id),
+    journal_id UUID REFERENCES journal_entries(id),
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(company_id, invoice_no)

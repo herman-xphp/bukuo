@@ -2,14 +2,11 @@ package handler
 
 import (
 	"errors"
-	"net/http"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
+	"github.com/herman-xphp/bukuo/internal/delivery/http/helper"
 	"github.com/herman-xphp/bukuo/internal/domain/entity"
 	"github.com/herman-xphp/bukuo/internal/usecase/contact"
-	"github.com/shopspring/decimal"
 )
 
 // ContactHandler handles contact endpoints
@@ -49,22 +46,12 @@ type CreateContactRequest struct {
 func (h *ContactHandler) Create(c *gin.Context) {
 	var req CreateContactRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
 
-	companyID, _ := uuid.Parse(c.GetString("company_id"))
-
-	creditLimit := decimal.Zero
-	if req.CreditLimit != "" {
-		cl, err := decimal.NewFromString(req.CreditLimit)
-		if err == nil {
-			creditLimit = cl
-		}
-	}
-
 	input := contact.CreateContactInput{
-		CompanyID:       companyID,
+		CompanyID:       helper.GetCompanyID(c),
 		Code:            req.Code,
 		Name:            req.Name,
 		ContactType:     entity.ContactType(req.ContactType),
@@ -73,21 +60,21 @@ func (h *ContactHandler) Create(c *gin.Context) {
 		Address:         req.Address,
 		City:            req.City,
 		TaxID:           req.TaxID,
-		CreditLimit:     creditLimit,
+		CreditLimit:     helper.ParseDecimal(req.CreditLimit),
 		PaymentTermDays: req.PaymentTermDays,
 	}
 
 	result, err := h.usecase.CreateContact(c.Request.Context(), input)
 	if err != nil {
-		status := http.StatusBadRequest
 		if errors.Is(err, contact.ErrContactCodeExists) {
-			status = http.StatusConflict
+			helper.Conflict(c, err)
+			return
 		}
-		c.JSON(status, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"data": result})
+	helper.Created(c, result)
 }
 
 // List handles GET /contacts
@@ -104,26 +91,13 @@ func (h *ContactHandler) Create(c *gin.Context) {
 // @Success 200 {object} map[string]interface{}
 // @Router /api/contacts [get]
 func (h *ContactHandler) List(c *gin.Context) {
-	companyID, _ := uuid.Parse(c.GetString("company_id"))
-
-	page := 1
-	pageSize := 20
-	if p := c.Query("page"); p != "" {
-		if parsed, err := strconv.Atoi(p); err == nil {
-			page = parsed
-		}
-	}
-	if ps := c.Query("page_size"); ps != "" {
-		if parsed, err := strconv.Atoi(ps); err == nil {
-			pageSize = parsed
-		}
-	}
+	p := helper.ParsePagination(c)
 
 	input := contact.ListInput{
-		CompanyID: companyID,
+		CompanyID: helper.GetCompanyID(c),
 		Search:    c.Query("q"),
-		Page:      page,
-		PageSize:  pageSize,
+		Page:      p.Page,
+		PageSize:  p.PageSize,
 	}
 
 	// Filter by contact type
@@ -133,26 +107,15 @@ func (h *ContactHandler) List(c *gin.Context) {
 	}
 
 	// Filter by active status
-	if a := c.Query("active"); a != "" {
-		active := a == "true"
-		input.IsActive = &active
-	}
+	input.IsActive = helper.ParseQueryBool(c, "active")
 
 	result, err := h.usecase.List(c.Request.Context(), input)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		helper.InternalError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"data": gin.H{
-			"items":       result.Contacts,
-			"total":       result.Total,
-			"page":        result.Page,
-			"page_size":   result.PageSize,
-			"total_pages": result.TotalPages,
-		},
-	})
+	helper.PaginatedItems(c, result.Contacts, int64(result.Total), p)
 }
 
 // GetByID handles GET /contacts/:id
@@ -166,20 +129,20 @@ func (h *ContactHandler) List(c *gin.Context) {
 // @Failure 404 {object} map[string]interface{}
 // @Router /api/contacts/{id} [get]
 func (h *ContactHandler) GetByID(c *gin.Context) {
-	companyID, _ := uuid.Parse(c.GetString("company_id"))
-	id, err := uuid.Parse(c.Param("id"))
+	companyID := helper.GetCompanyID(c)
+	id, err := helper.ParseUUID(c, "id")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid contact id"})
+		helper.InvalidID(c, "contact")
 		return
 	}
 
 	result, err := h.usecase.GetByID(c.Request.Context(), companyID, id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "contact not found"})
+		helper.NotFound(c, "contact")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": result})
+	helper.Success(c, result)
 }
 
 // UpdateContactRequest represents update contact request
@@ -209,25 +172,17 @@ type UpdateContactRequest struct {
 // @Failure 404 {object} map[string]interface{}
 // @Router /api/contacts/{id} [put]
 func (h *ContactHandler) Update(c *gin.Context) {
-	companyID, _ := uuid.Parse(c.GetString("company_id"))
-	id, err := uuid.Parse(c.Param("id"))
+	companyID := helper.GetCompanyID(c)
+	id, err := helper.ParseUUID(c, "id")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid contact id"})
+		helper.InvalidID(c, "contact")
 		return
 	}
 
 	var req UpdateContactRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
-	}
-
-	creditLimit := decimal.Zero
-	if req.CreditLimit != "" {
-		cl, err := decimal.NewFromString(req.CreditLimit)
-		if err == nil {
-			creditLimit = cl
-		}
 	}
 
 	input := contact.UpdateContactInput{
@@ -240,22 +195,22 @@ func (h *ContactHandler) Update(c *gin.Context) {
 		Address:         req.Address,
 		City:            req.City,
 		TaxID:           req.TaxID,
-		CreditLimit:     creditLimit,
+		CreditLimit:     helper.ParseDecimal(req.CreditLimit),
 		PaymentTermDays: req.PaymentTermDays,
 		IsActive:        req.IsActive,
 	}
 
 	result, err := h.usecase.UpdateContact(c.Request.Context(), input)
 	if err != nil {
-		status := http.StatusBadRequest
 		if errors.Is(err, contact.ErrContactNotFound) {
-			status = http.StatusNotFound
+			helper.NotFound(c, "contact")
+			return
 		}
-		c.JSON(status, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": result})
+	helper.Success(c, result)
 }
 
 // Delete handles DELETE /contacts/:id
@@ -269,21 +224,21 @@ func (h *ContactHandler) Update(c *gin.Context) {
 // @Failure 404 {object} map[string]interface{}
 // @Router /api/contacts/{id} [delete]
 func (h *ContactHandler) Delete(c *gin.Context) {
-	companyID, _ := uuid.Parse(c.GetString("company_id"))
-	id, err := uuid.Parse(c.Param("id"))
+	companyID := helper.GetCompanyID(c)
+	id, err := helper.ParseUUID(c, "id")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid contact id"})
+		helper.InvalidID(c, "contact")
 		return
 	}
 
 	if err := h.usecase.DeleteContact(c.Request.Context(), companyID, id); err != nil {
-		status := http.StatusBadRequest
 		if errors.Is(err, contact.ErrContactNotFound) {
-			status = http.StatusNotFound
+			helper.NotFound(c, "contact")
+			return
 		}
-		c.JSON(status, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "contact deleted"})
+	helper.Deleted(c, "contact")
 }

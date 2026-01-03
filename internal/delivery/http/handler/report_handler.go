@@ -1,11 +1,10 @@
 package handler
 
 import (
-	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
+	"github.com/herman-xphp/bukuo/internal/delivery/http/helper"
 	"github.com/herman-xphp/bukuo/internal/usecase/report"
 )
 
@@ -21,28 +20,28 @@ func NewReportHandler(uc *report.ReportUsecase) *ReportHandler {
 
 // TrialBalance handles GET /reports/trial-balance
 func (h *ReportHandler) TrialBalance(c *gin.Context) {
-	companyID, _ := uuid.Parse(c.GetString("company_id"))
+	companyID := helper.GetCompanyID(c)
+	periodID := helper.ParseUUIDString(c.Query("period_id"))
 
-	periodID, err := uuid.Parse(c.Query("period_id"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "period_id required"})
+	if periodID.String() == "00000000-0000-0000-0000-000000000000" {
+		helper.BadRequestMessage(c, "period_id required")
 		return
 	}
 
 	result, err := h.usecase.GetTrialBalance(c.Request.Context(), companyID, periodID)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": result})
+	helper.Success(c, result)
 }
 
 // GeneralLedger handles GET /reports/ledger/:account_id
 func (h *ReportHandler) GeneralLedger(c *gin.Context) {
-	accountID, err := uuid.Parse(c.Param("account_id"))
+	accountID, err := helper.ParseUUID(c, "account_id")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid account_id"})
+		helper.InvalidID(c, "account")
 		return
 	}
 
@@ -53,22 +52,22 @@ func (h *ReportHandler) GeneralLedger(c *gin.Context) {
 	end, _ := time.Parse("2006-01-02", endStr)
 
 	if start.IsZero() || end.IsZero() {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "start_date and end_date required"})
+		helper.BadRequestMessage(c, "start_date and end_date required")
 		return
 	}
 
 	result, err := h.usecase.GetGeneralLedger(c.Request.Context(), accountID, start, end)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": result})
+	helper.Success(c, result)
 }
 
 // IncomeStatement handles GET /reports/income-statement
 func (h *ReportHandler) IncomeStatement(c *gin.Context) {
-	companyID, _ := uuid.Parse(c.GetString("company_id"))
+	companyID := helper.GetCompanyID(c)
 
 	startStr := c.Query("start_date")
 	endStr := c.Query("end_date")
@@ -77,22 +76,22 @@ func (h *ReportHandler) IncomeStatement(c *gin.Context) {
 	end, _ := time.Parse("2006-01-02", endStr)
 
 	if start.IsZero() || end.IsZero() {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "start_date and end_date required"})
+		helper.BadRequestMessage(c, "start_date and end_date required")
 		return
 	}
 
 	result, err := h.usecase.GetIncomeStatement(c.Request.Context(), companyID, start, end)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": result})
+	helper.Success(c, result)
 }
 
 // BalanceSheet handles GET /reports/balance-sheet
 func (h *ReportHandler) BalanceSheet(c *gin.Context) {
-	companyID, _ := uuid.Parse(c.GetString("company_id"))
+	companyID := helper.GetCompanyID(c)
 	dateStr := c.Query("as_of_date")
 
 	asOfDate, _ := time.Parse("2006-01-02", dateStr)
@@ -102,16 +101,16 @@ func (h *ReportHandler) BalanceSheet(c *gin.Context) {
 
 	result, err := h.usecase.GetBalanceSheet(c.Request.Context(), companyID, asOfDate)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": result})
+	helper.Success(c, result)
 }
 
 // CashFlow handles GET /reports/cash-flow
 func (h *ReportHandler) CashFlow(c *gin.Context) {
-	companyID, _ := uuid.Parse(c.GetString("company_id"))
+	companyID := helper.GetCompanyID(c)
 
 	startStr := c.Query("start_date")
 	endStr := c.Query("end_date")
@@ -120,28 +119,26 @@ func (h *ReportHandler) CashFlow(c *gin.Context) {
 	end, _ := time.Parse("2006-01-02", endStr)
 
 	if start.IsZero() || end.IsZero() {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "start_date and end_date required"})
+		helper.BadRequestMessage(c, "start_date and end_date required")
 		return
 	}
 
 	result, err := h.usecase.GetCashFlow(c.Request.Context(), companyID, start, end)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": result})
+	helper.Success(c, result)
 }
 
 // Dashboard handles GET /reports/dashboard
 func (h *ReportHandler) Dashboard(c *gin.Context) {
-	companyID, _ := uuid.Parse(c.GetString("company_id"))
-
-	result, err := h.usecase.GetDashboardStats(c.Request.Context(), companyID)
+	result, err := h.usecase.GetDashboardStats(c.Request.Context(), helper.GetCompanyID(c))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": result})
+	helper.Success(c, result)
 }

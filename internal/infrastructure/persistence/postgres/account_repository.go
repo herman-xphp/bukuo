@@ -7,18 +7,16 @@ import (
 	"github.com/google/uuid"
 	"github.com/herman-xphp/bukuo/internal/domain/entity"
 	"github.com/herman-xphp/bukuo/internal/domain/repository"
+	"github.com/herman-xphp/bukuo/internal/infrastructure/persistence/postgres/querybuilder"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Verify interface implementation at compile time
 var _ repository.AccountRepository = (*AccountRepository)(nil)
 
-// AccountRepository implements repository.AccountRepository for PostgreSQL
 type AccountRepository struct {
 	db *pgxpool.Pool
 }
 
-// NewAccountRepository creates a new AccountRepository
 func NewAccountRepository(db *pgxpool.Pool) *AccountRepository {
 	return &AccountRepository{db: db}
 }
@@ -84,12 +82,11 @@ func (r *AccountRepository) GetByCompany(ctx context.Context, companyID uuid.UUI
 	var accounts []entity.Account
 	for rows.Next() {
 		var acc entity.Account
-		err := rows.Scan(
+		if err := rows.Scan(
 			&acc.ID, &acc.CompanyID, &acc.Code, &acc.Name, &acc.Type,
 			&acc.ParentID, &acc.IsPostable, &acc.IsActive, &acc.Description,
 			&acc.CreatedAt, &acc.UpdatedAt,
-		)
-		if err != nil {
+		); err != nil {
 			return nil, err
 		}
 		accounts = append(accounts, acc)
@@ -111,12 +108,11 @@ func (r *AccountRepository) GetByIDs(ctx context.Context, ids []uuid.UUID) (map[
 	accounts := make(map[uuid.UUID]*entity.Account)
 	for rows.Next() {
 		var acc entity.Account
-		err := rows.Scan(
+		if err := rows.Scan(
 			&acc.ID, &acc.CompanyID, &acc.Code, &acc.Name, &acc.Type,
 			&acc.ParentID, &acc.IsPostable, &acc.IsActive, &acc.Description,
 			&acc.CreatedAt, &acc.UpdatedAt,
-		)
-		if err != nil {
+		); err != nil {
 			return nil, err
 		}
 		accounts[acc.ID] = &acc
@@ -144,22 +140,22 @@ func (r *AccountRepository) Delete(ctx context.Context, id uuid.UUID) error {
 }
 
 func (r *AccountRepository) List(ctx context.Context, companyID uuid.UUID, limit, offset int, search string) ([]entity.Account, error) {
-	whereClause := `WHERE company_id = $1`
-	args := []interface{}{companyID}
+	qb := querybuilder.New()
+	qb.AddCondition("company_id = $%d", companyID)
 
 	if search != "" {
-		whereClause += fmt.Sprintf(` AND (name ILIKE $%d OR code ILIKE $%d)`, len(args)+1, len(args)+1)
-		args = append(args, "%"+search+"%")
+		qb.AddSearch(search, "name", "code")
 	}
+
+	whereClause := qb.WhereClause()
+	limitPos, offsetPos := qb.AddLimitOffset(limit, offset)
 
 	query := fmt.Sprintf(`
 		SELECT id, company_id, code, name, type, parent_id, is_postable, is_active, description, created_at, updated_at
-		FROM accounts %s ORDER BY code LIMIT $%d OFFSET $%d
-	`, whereClause, len(args)+1, len(args)+2)
+		FROM accounts WHERE %s ORDER BY code LIMIT $%d OFFSET $%d
+	`, whereClause, limitPos, offsetPos)
 
-	args = append(args, limit, offset)
-
-	rows, err := r.db.Query(ctx, query, args...)
+	rows, err := r.db.Query(ctx, query, qb.Args()...)
 	if err != nil {
 		return nil, err
 	}
@@ -168,12 +164,11 @@ func (r *AccountRepository) List(ctx context.Context, companyID uuid.UUID, limit
 	var accounts []entity.Account
 	for rows.Next() {
 		var acc entity.Account
-		err := rows.Scan(
+		if err := rows.Scan(
 			&acc.ID, &acc.CompanyID, &acc.Code, &acc.Name, &acc.Type,
 			&acc.ParentID, &acc.IsPostable, &acc.IsActive, &acc.Description,
 			&acc.CreatedAt, &acc.UpdatedAt,
-		)
-		if err != nil {
+		); err != nil {
 			return nil, err
 		}
 		accounts = append(accounts, acc)
@@ -182,16 +177,15 @@ func (r *AccountRepository) List(ctx context.Context, companyID uuid.UUID, limit
 }
 
 func (r *AccountRepository) Count(ctx context.Context, companyID uuid.UUID, search string) (int, error) {
-	whereClause := `WHERE company_id = $1`
-	args := []interface{}{companyID}
+	qb := querybuilder.New()
+	qb.AddCondition("company_id = $%d", companyID)
 
 	if search != "" {
-		whereClause += fmt.Sprintf(` AND (name ILIKE $%d OR code ILIKE $%d)`, len(args)+1, len(args)+1)
-		args = append(args, "%"+search+"%")
+		qb.AddSearch(search, "name", "code")
 	}
 
-	query := fmt.Sprintf(`SELECT COUNT(*) FROM accounts %s`, whereClause)
+	query := fmt.Sprintf(`SELECT COUNT(*) FROM accounts WHERE %s`, qb.WhereClause())
 	var count int
-	err := r.db.QueryRow(ctx, query, args...).Scan(&count)
+	err := r.db.QueryRow(ctx, query, qb.Args()...).Scan(&count)
 	return count, err
 }

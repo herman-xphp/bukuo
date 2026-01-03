@@ -1,11 +1,8 @@
 package handler
 
 import (
-	"net/http"
-	"strconv"
-
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
+	"github.com/herman-xphp/bukuo/internal/delivery/http/helper"
 	"github.com/herman-xphp/bukuo/internal/domain/entity"
 	"github.com/herman-xphp/bukuo/internal/usecase/account"
 )
@@ -34,106 +31,73 @@ type CreateAccountRequest struct {
 func (h *AccountHandler) Create(c *gin.Context) {
 	var req CreateAccountRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
 
-	companyID, _ := uuid.Parse(c.GetString("company_id"))
-
-	var parentID *uuid.UUID
-	if req.ParentID != nil {
-		id, _ := uuid.Parse(*req.ParentID)
-		parentID = &id
-	}
-
 	input := account.CreateAccountInput{
-		CompanyID:   companyID,
+		CompanyID:   helper.GetCompanyID(c),
 		Code:        req.Code,
 		Name:        req.Name,
 		Type:        entity.AccountType(req.Type),
-		ParentID:    parentID,
+		ParentID:    helper.ParseOptionalUUID(req.ParentID),
 		IsPostable:  req.IsPostable,
 		Description: req.Description,
 	}
 
 	result, err := h.usecase.CreateAccount(c.Request.Context(), input)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"data": result})
+	helper.Created(c, result)
 }
 
 // GetAll handles GET /accounts
 func (h *AccountHandler) GetAll(c *gin.Context) {
-	companyID, _ := uuid.Parse(c.GetString("company_id"))
+	companyID := helper.GetCompanyID(c)
 
 	// Check if pagination/search is requested
 	if c.Query("limit") != "" || c.Query("q") != "" || c.Query("offset") != "" || c.Query("page") != "" {
-		limit := 50
-		page := 1
-		if l := c.Query("limit"); l != "" {
-			if parsed, err := strconv.Atoi(l); err == nil {
-				limit = parsed
-			}
-		}
-		if p := c.Query("page"); p != "" {
-			if parsed, err := strconv.Atoi(p); err == nil {
-				page = parsed
-			}
-		}
-		offset := (page - 1) * limit
-		if o := c.Query("offset"); o != "" {
-			if parsed, err := strconv.Atoi(o); err == nil {
-				offset = parsed
-			}
-		}
+		p := helper.ParsePagination(c)
 		search := c.Query("q")
 
-		result, total, err := h.usecase.List(c.Request.Context(), companyID, limit, offset, search)
+		result, total, err := h.usecase.List(c.Request.Context(), companyID, p.Limit, p.Offset, search)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			helper.InternalError(c, err)
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{
-			"data": gin.H{
-				"items":  result,
-				"total":  total,
-				"limit":  limit,
-				"page":   page,
-				"offset": offset,
-			},
-		})
+		helper.PaginatedItems(c, result, int64(total), p)
 		return
 	}
 
-	// Default: Return Limitless (Existing behavior)
+	// Default: Return all (existing behavior)
 	accounts, err := h.usecase.GetAccountsWithBalances(c.Request.Context(), companyID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		helper.InternalError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": accounts})
+	helper.Success(c, accounts)
 }
 
 // GetByID handles GET /accounts/:id
 func (h *AccountHandler) GetByID(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
+	id, err := helper.ParseUUID(c, "id")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid account id"})
+		helper.InvalidID(c, "account")
 		return
 	}
 
 	result, err := h.usecase.GetByID(c.Request.Context(), id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+		helper.NotFound(c, "account")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": result})
+	helper.Success(c, result)
 }
 
 // UpdateAccountRequest represents update account request
@@ -148,29 +112,23 @@ type UpdateAccountRequest struct {
 
 // Update handles PUT /accounts/:id
 func (h *AccountHandler) Update(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
+	id, err := helper.ParseUUID(c, "id")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid account id"})
+		helper.InvalidID(c, "account")
 		return
 	}
 
 	var req UpdateAccountRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
-	}
-
-	var parentID *uuid.UUID
-	if req.ParentID != nil {
-		pid, _ := uuid.Parse(*req.ParentID)
-		parentID = &pid
 	}
 
 	input := account.UpdateAccountInput{
 		ID:          id,
 		Name:        req.Name,
 		Type:        entity.AccountType(req.Type),
-		ParentID:    parentID,
+		ParentID:    helper.ParseOptionalUUID(req.ParentID),
 		IsPostable:  req.IsPostable,
 		IsActive:    req.IsActive,
 		Description: req.Description,
@@ -178,25 +136,25 @@ func (h *AccountHandler) Update(c *gin.Context) {
 
 	result, err := h.usecase.UpdateAccount(c.Request.Context(), input)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": result})
+	helper.Success(c, result)
 }
 
 // Delete handles DELETE /accounts/:id
 func (h *AccountHandler) Delete(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
+	id, err := helper.ParseUUID(c, "id")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid account id"})
+		helper.InvalidID(c, "account")
 		return
 	}
 
 	if err := h.usecase.DeleteAccount(c.Request.Context(), id); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "account deleted"})
+	helper.Deleted(c, "account")
 }

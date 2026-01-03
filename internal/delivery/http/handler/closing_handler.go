@@ -1,10 +1,8 @@
 package handler
 
 import (
-	"net/http"
-
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
+	"github.com/herman-xphp/bukuo/internal/delivery/http/helper"
 	"github.com/herman-xphp/bukuo/internal/usecase/closing"
 )
 
@@ -28,39 +26,36 @@ type ClosePeriodRequest struct {
 func (h *ClosingHandler) ClosePeriod(c *gin.Context) {
 	var req ClosePeriodRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
 
-	periodID, err := uuid.Parse(req.PeriodID)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid period_id"})
+	periodID := helper.ParseUUIDString(req.PeriodID)
+	if periodID.String() == "00000000-0000-0000-0000-000000000000" {
+		helper.BadRequestMessage(c, "invalid period_id")
 		return
 	}
 
-	retainedEarningsID, err := uuid.Parse(req.RetainedEarningsID)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid retained_earnings_id"})
+	retainedEarningsID := helper.ParseUUIDString(req.RetainedEarningsID)
+	if retainedEarningsID.String() == "00000000-0000-0000-0000-000000000000" {
+		helper.BadRequestMessage(c, "invalid retained_earnings_id")
 		return
 	}
-
-	companyID, _ := uuid.Parse(c.GetString("company_id"))
-	userID, _ := uuid.Parse(c.GetString("user_id"))
 
 	input := closing.ClosePeriodInput{
 		PeriodID:           periodID,
-		CompanyID:          companyID,
+		CompanyID:          helper.GetCompanyID(c),
 		RetainedEarningsID: retainedEarningsID,
-		UserID:             userID,
+		UserID:             helper.GetUserID(c),
 	}
 
 	result, err := h.usecase.ClosePeriod(c.Request.Context(), input)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	helper.Success(c, gin.H{
 		"message":    "Period closed successfully",
 		"net_income": result.NetIncome,
 		"data":       result,
@@ -69,21 +64,17 @@ func (h *ClosingHandler) ClosePeriod(c *gin.Context) {
 
 // PreviewClosing handles GET /closing/preview/:period_id
 func (h *ClosingHandler) PreviewClosing(c *gin.Context) {
-	periodID, err := uuid.Parse(c.Param("period_id"))
+	periodID, err := helper.ParseUUID(c, "period_id")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid period_id"})
+		helper.InvalidID(c, "period")
 		return
 	}
 
-	companyID, _ := uuid.Parse(c.GetString("company_id"))
-
-	result, err := h.usecase.PreviewClosing(c.Request.Context(), periodID, companyID)
+	result, err := h.usecase.PreviewClosing(c.Request.Context(), periodID, helper.GetCompanyID(c))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		helper.InternalError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"data": result,
-	})
+	helper.Success(c, result)
 }

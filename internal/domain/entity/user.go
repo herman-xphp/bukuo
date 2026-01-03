@@ -19,6 +19,9 @@ var (
 	ErrAccountLocked      = errors.New("account is locked due to too many failed attempts")
 )
 
+// DefaultBcryptCost is used when no cost is specified
+var DefaultBcryptCost = bcrypt.DefaultCost
+
 // UserRole represents the role of a user
 type UserRole string
 
@@ -27,6 +30,7 @@ const (
 	UserRoleAdmin      UserRole = "ADMIN"
 	UserRoleAccountant UserRole = "ACCOUNTANT"
 	UserRoleViewer     UserRole = "VIEWER"
+	UserRoleCashier    UserRole = "CASHIER"
 )
 
 // User represents a user in the system
@@ -35,7 +39,9 @@ type User struct {
 	CompanyID      uuid.UUID  `json:"company_id"`
 	Email          string     `json:"email"`
 	PasswordHash   string     `json:"-"` // Never expose in JSON
+	PinHash        string     `json:"-"`
 	Name           string     `json:"name"`
+	ProfilePicture *string    `json:"profile_picture"` // URL to profile picture
 	Role           UserRole   `json:"role"`
 	IsActive       bool       `json:"is_active"`
 	FailedAttempts int        `json:"failed_attempts"` // For brute force protection
@@ -79,8 +85,13 @@ func ValidateEmail(email string) error {
 	return nil
 }
 
-// NewUser creates a new user with hashed password
+// NewUser creates a new user with hashed password using default cost
 func NewUser(companyID uuid.UUID, email, password, name string, role UserRole) (*User, error) {
+	return NewUserWithCost(companyID, email, password, name, role, DefaultBcryptCost)
+}
+
+// NewUserWithCost creates a new user with hashed password using specified bcrypt cost
+func NewUserWithCost(companyID uuid.UUID, email, password, name string, role UserRole, bcryptCost int) (*User, error) {
 	// Validate email
 	if err := ValidateEmail(email); err != nil {
 		return nil, err
@@ -91,7 +102,7 @@ func NewUser(companyID uuid.UUID, email, password, name string, role UserRole) (
 		return nil, err
 	}
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcryptCost)
 	if err != nil {
 		return nil, err
 	}
@@ -157,6 +168,22 @@ func (u *User) UpdateLastLogin() {
 	now := time.Now()
 	u.LastLoginAt = &now
 	u.ResetFailedAttempts()
+}
+
+// SetPassword sets a new hashed password using default cost
+func (u *User) SetPassword(password string) error {
+	return u.SetPasswordWithCost(password, DefaultBcryptCost)
+}
+
+// SetPasswordWithCost sets a new hashed password using specified bcrypt cost
+func (u *User) SetPasswordWithCost(password string, bcryptCost int) error {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcryptCost)
+	if err != nil {
+		return err
+	}
+	u.PasswordHash = string(hash)
+	u.UpdatedAt = time.Now()
+	return nil
 }
 
 // CanManageUsers checks if user can manage other users

@@ -2,15 +2,13 @@ package handler
 
 import (
 	"errors"
-	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/herman-xphp/bukuo/internal/delivery/http/helper"
 	"github.com/herman-xphp/bukuo/internal/domain/repository"
 	"github.com/herman-xphp/bukuo/internal/usecase/inventory"
-	"github.com/shopspring/decimal"
 )
 
 type InventoryHandler struct {
@@ -35,27 +33,32 @@ type StockInRequest struct {
 func (h *InventoryHandler) StockIn(c *gin.Context) {
 	var req StockInRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
-	companyID, _ := uuid.Parse(c.GetString("company_id"))
-	productID, _ := uuid.Parse(req.ProductID)
-	warehouseID, _ := uuid.Parse(req.WarehouseID)
-	qty, _ := decimal.NewFromString(req.Quantity)
-	cost, _ := decimal.NewFromString(req.UnitCost)
+
 	txDate := time.Now()
 	if req.TransactionDate != "" {
 		txDate, _ = time.Parse("2006-01-02", req.TransactionDate)
 	}
+
 	result, err := h.usecase.StockIn(c.Request.Context(), inventory.StockInInput{
-		CompanyID: companyID, TransactionNo: req.TransactionNo, ProductID: productID, WarehouseID: warehouseID,
-		Quantity: qty, UnitCost: cost, Reference: req.Reference, Notes: req.Notes, TransactionDate: txDate,
+		CompanyID:       helper.GetCompanyID(c),
+		TransactionNo:   req.TransactionNo,
+		ProductID:       helper.ParseUUIDString(req.ProductID),
+		WarehouseID:     helper.ParseUUIDString(req.WarehouseID),
+		Quantity:        helper.ParseDecimal(req.Quantity),
+		UnitCost:        helper.ParseDecimal(req.UnitCost),
+		Reference:       req.Reference,
+		Notes:           req.Notes,
+		TransactionDate: txDate,
 	})
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
-	c.JSON(http.StatusCreated, gin.H{"data": result})
+
+	helper.Created(c, result)
 }
 
 type StockOutRequest struct {
@@ -71,74 +74,92 @@ type StockOutRequest struct {
 func (h *InventoryHandler) StockOut(c *gin.Context) {
 	var req StockOutRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
-	companyID, _ := uuid.Parse(c.GetString("company_id"))
-	productID, _ := uuid.Parse(req.ProductID)
-	warehouseID, _ := uuid.Parse(req.WarehouseID)
-	qty, _ := decimal.NewFromString(req.Quantity)
+
 	txDate := time.Now()
 	if req.TransactionDate != "" {
 		txDate, _ = time.Parse("2006-01-02", req.TransactionDate)
 	}
+
 	result, err := h.usecase.StockOut(c.Request.Context(), inventory.StockOutInput{
-		CompanyID: companyID, TransactionNo: req.TransactionNo, ProductID: productID, WarehouseID: warehouseID,
-		Quantity: qty, Reference: req.Reference, Notes: req.Notes, TransactionDate: txDate,
+		CompanyID:       helper.GetCompanyID(c),
+		TransactionNo:   req.TransactionNo,
+		ProductID:       helper.ParseUUIDString(req.ProductID),
+		WarehouseID:     helper.ParseUUIDString(req.WarehouseID),
+		Quantity:        helper.ParseDecimal(req.Quantity),
+		Reference:       req.Reference,
+		Notes:           req.Notes,
+		TransactionDate: txDate,
 	})
 	if err != nil {
-		status := http.StatusBadRequest
 		if errors.Is(err, inventory.ErrInsufficientStock) {
-			status = http.StatusUnprocessableEntity
+			helper.ErrorMessage(c, 422, err.Error())
+			return
 		}
-		c.JSON(status, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
-	c.JSON(http.StatusCreated, gin.H{"data": result})
+
+	helper.Created(c, result)
 }
 
 func (h *InventoryHandler) GetStock(c *gin.Context) {
-	companyID, _ := uuid.Parse(c.GetString("company_id"))
-	productID, _ := uuid.Parse(c.Query("product_id"))
-	warehouseID, _ := uuid.Parse(c.Query("warehouse_id"))
+	companyID := helper.GetCompanyID(c)
+	productID := helper.ParseUUIDString(c.Query("product_id"))
+	warehouseID := helper.ParseUUIDString(c.Query("warehouse_id"))
+
 	if warehouseID != uuid.Nil {
-		stock, err := h.usecase.GetStock(c.Request.Context(), companyID, productID, warehouseID)
-		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "stock not found"})
+		if stock, err := h.usecase.GetStock(c.Request.Context(), companyID, productID, warehouseID); err == nil {
+			helper.Success(c, stock)
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"data": stock})
+	}
+
+	if productID != uuid.Nil {
+		stocks, err := h.usecase.GetStockByProduct(c.Request.Context(), companyID, productID)
+		if err != nil {
+			helper.InternalError(c, err)
+			return
+		}
+		helper.Success(c, stocks)
 		return
 	}
-	stocks, err := h.usecase.GetStockByProduct(c.Request.Context(), companyID, productID)
+
+	// List All Stocks
+	stocks, err := h.usecase.ListStocks(c.Request.Context(), companyID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		helper.InternalError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": stocks})
+
+	helper.Success(c, stocks)
 }
 
 func (h *InventoryHandler) ListTransactions(c *gin.Context) {
-	companyID, _ := uuid.Parse(c.GetString("company_id"))
-	filter := repository.InventoryFilter{Page: 1, PageSize: 20}
-	if p := c.Query("page"); p != "" {
-		filter.Page, _ = strconv.Atoi(p)
+	companyID := helper.GetCompanyID(c)
+	p := helper.ParsePagination(c)
+
+	filter := repository.InventoryFilter{
+		Page:     p.Page,
+		PageSize: p.PageSize,
 	}
-	if ps := c.Query("page_size"); ps != "" {
-		filter.PageSize, _ = strconv.Atoi(ps)
-	}
+
 	if pid := c.Query("product_id"); pid != "" {
-		id, _ := uuid.Parse(pid)
+		id := helper.ParseUUIDString(pid)
 		filter.ProductID = &id
 	}
 	if wid := c.Query("warehouse_id"); wid != "" {
-		id, _ := uuid.Parse(wid)
+		id := helper.ParseUUIDString(wid)
 		filter.WarehouseID = &id
 	}
+
 	txs, total, err := h.usecase.ListTransactions(c.Request.Context(), companyID, filter)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		helper.InternalError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": gin.H{"items": txs, "total": total, "page": filter.Page, "page_size": filter.PageSize}})
+
+	helper.PaginatedItems(c, txs, total, p)
 }

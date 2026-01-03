@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/herman-xphp/bukuo/internal/domain/entity"
 	"github.com/herman-xphp/bukuo/internal/domain/repository"
+	"github.com/herman-xphp/bukuo/internal/usecase/common"
 	"github.com/shopspring/decimal"
 )
 
@@ -35,7 +36,6 @@ type CreateAccountInput struct {
 
 // CreateAccount creates a new account
 func (uc *AccountUsecase) CreateAccount(ctx context.Context, input CreateAccountInput) (*entity.Account, error) {
-	// Check if code exists
 	existing, _ := uc.accountRepo.GetByCode(ctx, input.CompanyID, input.Code)
 	if existing != nil {
 		return nil, fmt.Errorf("account code %s already exists", input.Code)
@@ -47,7 +47,7 @@ func (uc *AccountUsecase) CreateAccount(ctx context.Context, input CreateAccount
 	account.Description = input.Description
 
 	if err := uc.accountRepo.Create(ctx, account); err != nil {
-		return nil, fmt.Errorf("failed to create account: %w", err)
+		return nil, common.WrapErr("create account", err)
 	}
 
 	return account, nil
@@ -89,7 +89,7 @@ func (uc *AccountUsecase) UpdateAccount(ctx context.Context, input UpdateAccount
 	account.Description = input.Description
 
 	if err := uc.accountRepo.Update(ctx, account); err != nil {
-		return nil, err
+		return nil, common.WrapErr("update account", err)
 	}
 
 	return account, nil
@@ -97,7 +97,20 @@ func (uc *AccountUsecase) UpdateAccount(ctx context.Context, input UpdateAccount
 
 // DeleteAccount deletes an account
 func (uc *AccountUsecase) DeleteAccount(ctx context.Context, id uuid.UUID) error {
-	return uc.accountRepo.Delete(ctx, id)
+	// Check if account has balance
+	balance, err := uc.journalRepo.GetBalance(ctx, id)
+	if err != nil {
+		return common.WrapErr("check balance", err)
+	}
+
+	if !balance.IsZero() {
+		return fmt.Errorf("cannot delete account with non-zero balance: %s", balance)
+	}
+
+	if err := uc.accountRepo.Delete(ctx, id); err != nil {
+		return common.WrapErr("delete account", err)
+	}
+	return nil
 }
 
 // AccountWithBalance represents an account with its calculated balance
@@ -108,19 +121,16 @@ type AccountWithBalance struct {
 
 // GetAccountsWithBalances returns all accounts with their calculated balances
 func (uc *AccountUsecase) GetAccountsWithBalances(ctx context.Context, companyID uuid.UUID) ([]AccountWithBalance, error) {
-	// Get all accounts
 	accounts, err := uc.accountRepo.GetByCompany(ctx, companyID)
 	if err != nil {
-		return nil, err
+		return nil, common.WrapErr("get accounts", err)
 	}
 
-	// Get all posted journals from the beginning of time to now
 	journals, err := uc.journalRepo.GetByDateRange(ctx, companyID, time.Time{}, time.Now())
 	if err != nil {
-		return nil, err
+		return nil, common.WrapErr("get journals", err)
 	}
 
-	// Calculate balances from posted journals
 	balances := make(map[uuid.UUID]decimal.Decimal)
 	for _, journal := range journals {
 		if journal.Status != entity.JournalStatusPosted {
@@ -131,18 +141,13 @@ func (uc *AccountUsecase) GetAccountsWithBalances(ctx context.Context, companyID
 		}
 	}
 
-	// Create account list with balances
 	result := make([]AccountWithBalance, len(accounts))
 	for i, acc := range accounts {
 		balance := balances[acc.ID]
-		// Adjust for normal balance (Credit accounts like LIABILITY, EQUITY, REVENUE should show positive when negative)
 		if acc.NormalBalance() == "CREDIT" {
 			balance = balance.Neg()
 		}
-		result[i] = AccountWithBalance{
-			Account: acc,
-			Balance: balance,
-		}
+		result[i] = AccountWithBalance{Account: acc, Balance: balance}
 	}
 
 	return result, nil
@@ -150,39 +155,32 @@ func (uc *AccountUsecase) GetAccountsWithBalances(ctx context.Context, companyID
 
 // List returns all accounts for a company with pagination and balances
 func (uc *AccountUsecase) List(ctx context.Context, companyID uuid.UUID, limit, offset int, search string) ([]AccountWithBalance, int, error) {
+	p := common.ValidatePagination(1, limit) // Use limit as pageSize
 	if limit <= 0 {
-		limit = 50
-	}
-	if limit > 100 {
-		limit = 100
+		limit = p.PageSize
 	}
 
 	accounts, err := uc.accountRepo.List(ctx, companyID, limit, offset, search)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, common.WrapErr("list accounts", err)
 	}
 
 	total, err := uc.accountRepo.Count(ctx, companyID, search)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, common.WrapErr("count accounts", err)
 	}
 
 	result := make([]AccountWithBalance, len(accounts))
 	for i, acc := range accounts {
 		balance, err := uc.journalRepo.GetBalance(ctx, acc.ID)
 		if err != nil {
-			return nil, 0, err
+			return nil, 0, common.WrapErr("get balance", err)
 		}
 
-		// Adjust for normal balance
 		if acc.NormalBalance() == "CREDIT" {
 			balance = balance.Neg()
 		}
-
-		result[i] = AccountWithBalance{
-			Account: acc,
-			Balance: balance,
-		}
+		result[i] = AccountWithBalance{Account: acc, Balance: balance}
 	}
 
 	return result, total, nil

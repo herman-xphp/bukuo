@@ -1,12 +1,10 @@
 package handler
 
 import (
-	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
+	"github.com/herman-xphp/bukuo/internal/delivery/http/helper"
 	"github.com/herman-xphp/bukuo/internal/usecase/period"
 )
 
@@ -31,16 +29,15 @@ type CreatePeriodRequest struct {
 func (h *PeriodHandler) Create(c *gin.Context) {
 	var req CreatePeriodRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
 
-	companyID, _ := uuid.Parse(c.GetString("company_id"))
 	startDate, _ := time.Parse("2006-01-02", req.StartDate)
 	endDate, _ := time.Parse("2006-01-02", req.EndDate)
 
 	input := period.CreatePeriodInput{
-		CompanyID: companyID,
+		CompanyID: helper.GetCompanyID(c),
 		Name:      req.Name,
 		StartDate: startDate,
 		EndDate:   endDate,
@@ -48,95 +45,70 @@ func (h *PeriodHandler) Create(c *gin.Context) {
 
 	result, err := h.usecase.CreatePeriod(c.Request.Context(), input)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"data": result})
+	helper.Created(c, result)
 }
 
 // GetAll handles GET /periods
 func (h *PeriodHandler) GetAll(c *gin.Context) {
-	companyID, _ := uuid.Parse(c.GetString("company_id"))
+	companyID := helper.GetCompanyID(c)
 
 	// Check if pagination/search
 	if c.Query("limit") != "" || c.Query("q") != "" || c.Query("offset") != "" || c.Query("page") != "" {
-		limit := 50
-		page := 1
-		if l := c.Query("limit"); l != "" {
-			if parsed, err := strconv.Atoi(l); err == nil {
-				limit = parsed
-			}
-		}
-		if p := c.Query("page"); p != "" {
-			if parsed, err := strconv.Atoi(p); err == nil {
-				page = parsed
-			}
-		}
-		offset := (page - 1) * limit
-		if o := c.Query("offset"); o != "" {
-			if parsed, err := strconv.Atoi(o); err == nil {
-				offset = parsed
-			}
-		}
+		p := helper.ParsePagination(c)
 		search := c.Query("q")
 
-		periods, total, err := h.usecase.List(c.Request.Context(), companyID, limit, offset, search)
+		periods, total, err := h.usecase.List(c.Request.Context(), companyID, p.Limit, p.Offset, search)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			helper.InternalError(c, err)
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{
-			"data": gin.H{
-				"items":  periods,
-				"total":  total,
-				"limit":  limit,
-				"page":   page,
-				"offset": offset,
-			},
-		})
+		helper.PaginatedItems(c, periods, int64(total), p)
 		return
 	}
 
 	// Default: Return Limitless (Backwards compatible)
 	periods, err := h.usecase.GetByCompany(c.Request.Context(), companyID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		helper.InternalError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": periods})
+	helper.Success(c, periods)
 }
 
 // GetByID handles GET /periods/:id
 func (h *PeriodHandler) GetByID(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
+	id, err := helper.ParseUUID(c, "id")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid period id"})
+		helper.InvalidID(c, "period")
 		return
 	}
 
 	result, err := h.usecase.GetByID(c.Request.Context(), id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "period not found"})
+		helper.NotFound(c, "period")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": result})
+	helper.Success(c, result)
 }
 
 // Update handles PUT /periods/:id
 func (h *PeriodHandler) Update(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
+	id, err := helper.ParseUUID(c, "id")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid period id"})
+		helper.InvalidID(c, "period")
 		return
 	}
 
 	var req CreatePeriodRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
 
@@ -151,46 +123,46 @@ func (h *PeriodHandler) Update(c *gin.Context) {
 
 	result, err := h.usecase.UpdatePeriod(c.Request.Context(), id, input)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": result})
+	helper.Success(c, result)
 }
 
 // Delete handles DELETE /periods/:id
 func (h *PeriodHandler) Delete(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
+	id, err := helper.ParseUUID(c, "id")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid period id"})
+		helper.InvalidID(c, "period")
 		return
 	}
 
 	if err := h.usecase.DeletePeriod(c.Request.Context(), id); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "period deleted"})
+	helper.Deleted(c, "period")
 }
 
 // Close handles POST /periods/:id/close
 func (h *PeriodHandler) Close(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
+	id, err := helper.ParseUUID(c, "id")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid period id"})
+		helper.InvalidID(c, "period")
 		return
 	}
 
-	userID, _ := uuid.Parse(c.GetString("user_id"))
+	userID := helper.GetUserID(c)
 
 	result, err := h.usecase.ClosePeriod(c.Request.Context(), id, userID)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	helper.Success(c, gin.H{
 		"message": "period closed",
 		"data":    result,
 	})

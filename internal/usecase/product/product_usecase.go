@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/herman-xphp/bukuo/internal/domain/entity"
 	"github.com/herman-xphp/bukuo/internal/domain/repository"
+	"github.com/herman-xphp/bukuo/internal/usecase/common"
 	"github.com/shopspring/decimal"
 )
 
@@ -21,12 +22,13 @@ var (
 
 // ProductUsecase handles product business logic
 type ProductUsecase struct {
-	productRepo repository.ProductRepository
+	productRepo   repository.ProductRepository
+	inventoryRepo repository.InventoryRepository
 }
 
 // NewProductUsecase creates a new ProductUsecase
-func NewProductUsecase(pr repository.ProductRepository) *ProductUsecase {
-	return &ProductUsecase{productRepo: pr}
+func NewProductUsecase(pr repository.ProductRepository, ir repository.InventoryRepository) *ProductUsecase {
+	return &ProductUsecase{productRepo: pr, inventoryRepo: ir}
 }
 
 // CreateProductInput represents input for creating a product
@@ -48,15 +50,13 @@ type CreateProductInput struct {
 
 // CreateProduct creates a new product
 func (uc *ProductUsecase) CreateProduct(ctx context.Context, input CreateProductInput) (*entity.Product, error) {
-	// Validate product type
 	if !entity.IsValidProductType(input.Type) {
 		return nil, ErrInvalidProductType
 	}
 
-	// Check if code exists
 	exists, err := uc.productRepo.ExistsByCode(ctx, input.CompanyID, input.Code, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to check code: %w", err)
+		return nil, common.WrapErr("check code", err)
 	}
 	if exists {
 		return nil, ErrProductCodeExists
@@ -83,7 +83,7 @@ func (uc *ProductUsecase) CreateProduct(ctx context.Context, input CreateProduct
 	}
 
 	if err := uc.productRepo.Create(ctx, product); err != nil {
-		return nil, fmt.Errorf("failed to create product: %w", err)
+		return nil, common.WrapErr("create product", err)
 	}
 
 	return product, nil
@@ -120,41 +120,28 @@ type ListOutput struct {
 
 // List retrieves products with filtering and pagination
 func (uc *ProductUsecase) List(ctx context.Context, input ListInput) (*ListOutput, error) {
-	if input.Page < 1 {
-		input.Page = 1
-	}
-	if input.PageSize < 1 {
-		input.PageSize = 20
-	}
-	if input.PageSize > 100 {
-		input.PageSize = 100
-	}
+	p := common.ValidatePagination(input.Page, input.PageSize)
 
 	filter := repository.ProductFilter{
 		ProductType: input.ProductType,
 		CategoryID:  input.CategoryID,
 		Search:      input.Search,
 		IsActive:    input.IsActive,
-		Page:        input.Page,
-		PageSize:    input.PageSize,
+		Page:        p.Page,
+		PageSize:    p.PageSize,
 	}
 
 	products, total, err := uc.productRepo.List(ctx, input.CompanyID, filter)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list products: %w", err)
-	}
-
-	totalPages := total / int64(input.PageSize)
-	if total%int64(input.PageSize) > 0 {
-		totalPages++
+		return nil, common.WrapErr("list products", err)
 	}
 
 	return &ListOutput{
 		Products:   products,
 		Total:      total,
-		Page:       input.Page,
-		PageSize:   input.PageSize,
-		TotalPages: totalPages,
+		Page:       p.Page,
+		PageSize:   p.PageSize,
+		TotalPages: common.CalculateTotalPages(total, p.PageSize),
 	}, nil
 }
 
@@ -167,6 +154,7 @@ type UpdateProductInput struct {
 	CategoryID         *uuid.UUID
 	UnitID             uuid.UUID
 	Description        string
+	ImageURL           *string
 	SalesPrice         decimal.Decimal
 	PurchasePrice      decimal.Decimal
 	SalesAccountID     uuid.UUID
@@ -178,7 +166,6 @@ type UpdateProductInput struct {
 
 // UpdateProduct updates an existing product
 func (uc *ProductUsecase) UpdateProduct(ctx context.Context, input UpdateProductInput) (*entity.Product, error) {
-	// Validate product type
 	if !entity.IsValidProductType(input.Type) {
 		return nil, ErrInvalidProductType
 	}
@@ -193,6 +180,7 @@ func (uc *ProductUsecase) UpdateProduct(ctx context.Context, input UpdateProduct
 	product.CategoryID = input.CategoryID
 	product.UnitID = input.UnitID
 	product.Description = input.Description
+	product.ImageURL = input.ImageURL
 	product.SalesPrice = input.SalesPrice
 	product.PurchasePrice = input.PurchasePrice
 	product.SalesAccountID = input.SalesAccountID
@@ -203,7 +191,7 @@ func (uc *ProductUsecase) UpdateProduct(ctx context.Context, input UpdateProduct
 	product.UpdatedAt = time.Now()
 
 	if err := uc.productRepo.Update(ctx, product); err != nil {
-		return nil, fmt.Errorf("failed to update product: %w", err)
+		return nil, common.WrapErr("update product", err)
 	}
 
 	return product, nil
@@ -211,13 +199,18 @@ func (uc *ProductUsecase) UpdateProduct(ctx context.Context, input UpdateProduct
 
 // DeleteProduct soft-deletes a product
 func (uc *ProductUsecase) DeleteProduct(ctx context.Context, companyID, id uuid.UUID) error {
-	_, err := uc.productRepo.GetByID(ctx, companyID, id)
-	if err != nil {
+	if _, err := uc.productRepo.GetByID(ctx, companyID, id); err != nil {
 		return ErrProductNotFound
 	}
 
+	// Check for existing inventory
+	stock, err := uc.inventoryRepo.GetTotalStock(ctx, companyID, id)
+	if err == nil && stock != nil && !stock.Quantity.IsZero() {
+		return fmt.Errorf("cannot delete product with existing stock: %s", stock.Quantity)
+	}
+
 	if err := uc.productRepo.Delete(ctx, companyID, id); err != nil {
-		return fmt.Errorf("failed to delete product: %w", err)
+		return common.WrapErr("delete product", err)
 	}
 
 	return nil

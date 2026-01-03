@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/herman-xphp/bukuo/internal/domain/entity"
 	"github.com/herman-xphp/bukuo/internal/domain/repository"
+	"github.com/herman-xphp/bukuo/internal/usecase/common"
 	"github.com/shopspring/decimal"
 )
 
@@ -16,20 +17,14 @@ type ClosingUsecase struct {
 	accountRepo  repository.AccountRepository
 	periodRepo   repository.PeriodRepository
 	auditLogRepo repository.AuditLogRepository
+	audit        *common.AuditLogger
 }
 
 // NewClosingUsecase creates a new ClosingUsecase
-func NewClosingUsecase(
-	jr repository.JournalRepository,
-	ar repository.AccountRepository,
-	pr repository.PeriodRepository,
-	alr repository.AuditLogRepository,
-) *ClosingUsecase {
+func NewClosingUsecase(jr repository.JournalRepository, ar repository.AccountRepository, pr repository.PeriodRepository, alr repository.AuditLogRepository) *ClosingUsecase {
 	return &ClosingUsecase{
-		journalRepo:  jr,
-		accountRepo:  ar,
-		periodRepo:   pr,
-		auditLogRepo: alr,
+		journalRepo: jr, accountRepo: ar, periodRepo: pr, auditLogRepo: alr,
+		audit: common.NewAuditLogger(alr),
 	}
 }
 
@@ -37,7 +32,7 @@ func NewClosingUsecase(
 type ClosePeriodInput struct {
 	PeriodID           uuid.UUID
 	CompanyID          uuid.UUID
-	RetainedEarningsID uuid.UUID // Account ID for Retained Earnings
+	RetainedEarningsID uuid.UUID
 	UserID             uuid.UUID
 }
 
@@ -50,7 +45,6 @@ type ClosePeriodOutput struct {
 
 // ClosePeriod creates closing entries and closes the period
 func (uc *ClosingUsecase) ClosePeriod(ctx context.Context, input ClosePeriodInput) (*ClosePeriodOutput, error) {
-	// 1. Get period and validate
 	period, err := uc.periodRepo.GetByID(ctx, input.PeriodID)
 	if err != nil {
 		return nil, fmt.Errorf("period not found: %w", err)
@@ -60,31 +54,26 @@ func (uc *ClosingUsecase) ClosePeriod(ctx context.Context, input ClosePeriodInpu
 		return nil, fmt.Errorf("period is not open, status: %s", period.Status)
 	}
 
-	// 2. Get all accounts for the company
 	accounts, err := uc.accountRepo.GetByCompany(ctx, input.CompanyID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get accounts: %w", err)
+		return nil, common.WrapErr("get accounts", err)
 	}
 
-	// 3. Get all posted journals in this period
 	journals, err := uc.journalRepo.GetByPeriod(ctx, input.PeriodID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get journals: %w", err)
+		return nil, common.WrapErr("get journals", err)
 	}
 
-	// 4. Calculate balances by account type
 	balances := make(map[uuid.UUID]decimal.Decimal)
 	for _, journal := range journals {
 		if journal.Status != entity.JournalStatusPosted {
 			continue
 		}
 		for _, line := range journal.Lines {
-			current := balances[line.AccountID]
-			balances[line.AccountID] = current.Add(line.DebitAmount).Sub(line.CreditAmount)
+			balances[line.AccountID] = balances[line.AccountID].Add(line.DebitAmount).Sub(line.CreditAmount)
 		}
 	}
 
-	// 5. Calculate net income (Revenue - Expense)
 	var totalRevenue, totalExpense decimal.Decimal
 	revenueAccounts := make([]uuid.UUID, 0)
 	expenseAccounts := make([]uuid.UUID, 0)
@@ -94,16 +83,13 @@ func (uc *ClosingUsecase) ClosePeriod(ctx context.Context, input ClosePeriodInpu
 		if !ok {
 			continue
 		}
-
 		switch acc.Type {
 		case entity.AccountTypeRevenue:
-			// Revenue has credit normal balance, so negate
 			totalRevenue = totalRevenue.Add(balance.Neg())
 			if !balance.IsZero() {
 				revenueAccounts = append(revenueAccounts, acc.ID)
 			}
 		case entity.AccountTypeExpense:
-			// Expense has debit normal balance
 			totalExpense = totalExpense.Add(balance)
 			if !balance.IsZero() {
 				expenseAccounts = append(expenseAccounts, acc.ID)
@@ -113,25 +99,16 @@ func (uc *ClosingUsecase) ClosePeriod(ctx context.Context, input ClosePeriodInpu
 
 	netIncome := totalRevenue.Sub(totalExpense)
 
-	// 6. Create closing journal entry
-	closingJournal := entity.NewJournalEntry(
-		input.CompanyID,
-		input.PeriodID,
-		input.UserID,
-		period.EndDate,
-		fmt.Sprintf("Closing Entry for %s", period.Name),
-	)
+	closingJournal := entity.NewJournalEntry(input.CompanyID, input.PeriodID, input.UserID, period.EndDate, fmt.Sprintf("Closing Entry for %s", period.Name))
 	closingJournal.SourceType = "CLOSING"
 
-	// 7. Close revenue accounts (debit to zero out credit balances)
 	for _, accID := range revenueAccounts {
-		balance := balances[accID].Neg() // Revenue balance is stored as negative
+		balance := balances[accID].Neg()
 		if balance.IsPositive() {
 			closingJournal.AddLine(accID, "Close revenue", balance, decimal.Zero)
 		}
 	}
 
-	// 8. Close expense accounts (credit to zero out debit balances)
 	for _, accID := range expenseAccounts {
 		balance := balances[accID]
 		if balance.IsPositive() {
@@ -139,80 +116,54 @@ func (uc *ClosingUsecase) ClosePeriod(ctx context.Context, input ClosePeriodInpu
 		}
 	}
 
-	// 9. Transfer net income to retained earnings
 	if netIncome.IsPositive() {
-		// Profit: Credit Retained Earnings
 		closingJournal.AddLine(input.RetainedEarningsID, "Net income to retained earnings", decimal.Zero, netIncome)
 	} else if netIncome.IsNegative() {
-		// Loss: Debit Retained Earnings
 		closingJournal.AddLine(input.RetainedEarningsID, "Net loss to retained earnings", netIncome.Abs(), decimal.Zero)
 	}
 
-	// 10. Generate entry number and post
 	count, _ := uc.journalRepo.CountByYear(ctx, input.CompanyID, period.EndDate.Year())
 	closingJournal.EntryNumber = fmt.Sprintf("CL-%d-%04d", period.EndDate.Year(), count+1)
 
 	if err := closingJournal.Post(input.UserID); err != nil {
-		return nil, fmt.Errorf("failed to post closing journal: %w", err)
+		return nil, common.WrapErr("post closing journal", err)
 	}
 
-	// 11. Close the period (memory only first)
 	if err := period.Close(input.UserID); err != nil {
-		return nil, fmt.Errorf("failed to close period: %w", err)
+		return nil, common.WrapErr("close period", err)
 	}
 
-	// 12. Persist both Journal and Period status atomically
 	if err := uc.journalRepo.ClosePeriodWithTransaction(ctx, closingJournal, period); err != nil {
-		return nil, fmt.Errorf("failed to execute atomic closing: %w", err)
+		return nil, common.WrapErr("execute atomic closing", err)
 	}
 
-	// 13. Audit log
-	auditLog := entity.NewAuditLog(
-		input.CompanyID,
-		&input.UserID,
-		"", // Email unknown here, optional/fetched if needed, or leave empty
-		entity.AuditActionUpdate,
-		"accounting_period",
-		&period.ID,
-		fmt.Sprintf("Closed period %s and generated closing entry %s", period.Name, closingJournal.EntryNumber),
-		"", // IP unknown in usecase
-		"", // UserAgent unknown in usecase
-	)
-	_ = uc.auditLogRepo.Create(ctx, auditLog)
+	uc.audit.LogUpdate(ctx, input.CompanyID, &input.UserID, "accounting_period", &period.ID, fmt.Sprintf("Closed period %s and generated closing entry %s", period.Name, closingJournal.EntryNumber))
 
-	return &ClosePeriodOutput{
-		Period:         period,
-		ClosingJournal: closingJournal,
-		NetIncome:      netIncome,
-	}, nil
+	return &ClosePeriodOutput{Period: period, ClosingJournal: closingJournal, NetIncome: netIncome}, nil
 }
 
 // PreviewClosing calculates what the closing would look like without executing
 func (uc *ClosingUsecase) PreviewClosing(ctx context.Context, periodID, companyID uuid.UUID) (*ClosingPreview, error) {
-	// Get all accounts and journals
 	accounts, err := uc.accountRepo.GetByCompany(ctx, companyID)
 	if err != nil {
-		return nil, err
+		return nil, common.WrapErr("get accounts", err)
 	}
 
 	journals, err := uc.journalRepo.GetByPeriod(ctx, periodID)
 	if err != nil {
-		return nil, err
+		return nil, common.WrapErr("get journals", err)
 	}
 
-	// Calculate balances
 	balances := make(map[uuid.UUID]decimal.Decimal)
 	for _, journal := range journals {
 		if journal.Status != entity.JournalStatusPosted {
 			continue
 		}
 		for _, line := range journal.Lines {
-			current := balances[line.AccountID]
-			balances[line.AccountID] = current.Add(line.DebitAmount).Sub(line.CreditAmount)
+			balances[line.AccountID] = balances[line.AccountID].Add(line.DebitAmount).Sub(line.CreditAmount)
 		}
 	}
 
-	// Calculate totals
 	var totalRevenue, totalExpense decimal.Decimal
 	revenueDetails := make([]AccountBalance, 0)
 	expenseDetails := make([]AccountBalance, 0)
@@ -222,34 +173,20 @@ func (uc *ClosingUsecase) PreviewClosing(ctx context.Context, periodID, companyI
 		if !ok || balance.IsZero() {
 			continue
 		}
-
 		switch acc.Type {
 		case entity.AccountTypeRevenue:
 			amount := balance.Neg()
 			totalRevenue = totalRevenue.Add(amount)
-			revenueDetails = append(revenueDetails, AccountBalance{
-				AccountID:   acc.ID,
-				AccountCode: acc.Code,
-				AccountName: acc.Name,
-				Balance:     amount,
-			})
+			revenueDetails = append(revenueDetails, AccountBalance{AccountID: acc.ID, AccountCode: acc.Code, AccountName: acc.Name, Balance: amount})
 		case entity.AccountTypeExpense:
 			totalExpense = totalExpense.Add(balance)
-			expenseDetails = append(expenseDetails, AccountBalance{
-				AccountID:   acc.ID,
-				AccountCode: acc.Code,
-				AccountName: acc.Name,
-				Balance:     balance,
-			})
+			expenseDetails = append(expenseDetails, AccountBalance{AccountID: acc.ID, AccountCode: acc.Code, AccountName: acc.Name, Balance: balance})
 		}
 	}
 
 	return &ClosingPreview{
-		TotalRevenue:   totalRevenue,
-		TotalExpense:   totalExpense,
-		NetIncome:      totalRevenue.Sub(totalExpense),
-		RevenueDetails: revenueDetails,
-		ExpenseDetails: expenseDetails,
+		TotalRevenue: totalRevenue, TotalExpense: totalExpense, NetIncome: totalRevenue.Sub(totalExpense),
+		RevenueDetails: revenueDetails, ExpenseDetails: expenseDetails,
 	}, nil
 }
 

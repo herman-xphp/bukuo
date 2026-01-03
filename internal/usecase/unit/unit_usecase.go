@@ -3,11 +3,11 @@ package unit
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/herman-xphp/bukuo/internal/domain/entity"
 	"github.com/herman-xphp/bukuo/internal/domain/repository"
+	"github.com/herman-xphp/bukuo/internal/usecase/common"
 )
 
 // Errors
@@ -35,10 +35,9 @@ type CreateUnitInput struct {
 
 // CreateUnit creates a new unit of measure
 func (uc *UnitUsecase) CreateUnit(ctx context.Context, input CreateUnitInput) (*entity.UnitOfMeasure, error) {
-	// Check if code exists
 	exists, err := uc.unitRepo.ExistsByCode(ctx, input.CompanyID, input.Code)
 	if err != nil {
-		return nil, fmt.Errorf("failed to check code: %w", err)
+		return nil, common.WrapErr("check code", err)
 	}
 	if exists {
 		return nil, ErrUnitCodeExists
@@ -47,7 +46,7 @@ func (uc *UnitUsecase) CreateUnit(ctx context.Context, input CreateUnitInput) (*
 	unit := entity.NewUnitOfMeasure(input.CompanyID, input.Code, input.Name)
 
 	if err := uc.unitRepo.Create(ctx, unit); err != nil {
-		return nil, fmt.Errorf("failed to create unit: %w", err)
+		return nil, common.WrapErr("create unit", err)
 	}
 
 	return unit, nil
@@ -55,7 +54,11 @@ func (uc *UnitUsecase) CreateUnit(ctx context.Context, input CreateUnitInput) (*
 
 // List retrieves all units for a company
 func (uc *UnitUsecase) List(ctx context.Context, companyID uuid.UUID) ([]entity.UnitOfMeasure, error) {
-	return uc.unitRepo.List(ctx, companyID)
+	units, err := uc.unitRepo.List(ctx, companyID)
+	if err != nil {
+		return nil, common.WrapErr("list units", err)
+	}
+	return units, nil
 }
 
 // GetByID retrieves a unit by ID
@@ -69,9 +72,11 @@ func (uc *UnitUsecase) GetByID(ctx context.Context, companyID, id uuid.UUID) (*e
 
 // Delete deletes a unit
 func (uc *UnitUsecase) Delete(ctx context.Context, companyID, id uuid.UUID) error {
-	_, err := uc.unitRepo.GetByID(ctx, companyID, id)
-	if err != nil {
+	if _, err := uc.unitRepo.GetByID(ctx, companyID, id); err != nil {
 		return ErrUnitNotFound
 	}
-	return uc.unitRepo.Delete(ctx, companyID, id)
+	if err := uc.unitRepo.Delete(ctx, companyID, id); err != nil {
+		return common.WrapErr("delete unit", err)
+	}
+	return nil
 }

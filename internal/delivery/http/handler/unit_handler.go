@@ -2,10 +2,9 @@ package handler
 
 import (
 	"errors"
-	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
+	"github.com/herman-xphp/bukuo/internal/delivery/http/helper"
 	"github.com/herman-xphp/bukuo/internal/usecase/unit"
 )
 
@@ -29,79 +28,75 @@ type CreateUnitRequest struct {
 func (h *UnitHandler) Create(c *gin.Context) {
 	var req CreateUnitRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
 
-	companyID, _ := uuid.Parse(c.GetString("company_id"))
-
 	input := unit.CreateUnitInput{
-		CompanyID: companyID,
+		CompanyID: helper.GetCompanyID(c),
 		Code:      req.Code,
 		Name:      req.Name,
 	}
 
 	result, err := h.usecase.CreateUnit(c.Request.Context(), input)
 	if err != nil {
-		status := http.StatusBadRequest
 		if errors.Is(err, unit.ErrUnitCodeExists) {
-			status = http.StatusConflict
+			helper.Conflict(c, err)
+			return
 		}
-		c.JSON(status, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"data": result})
+	helper.Created(c, result)
 }
 
 // List handles GET /units
 func (h *UnitHandler) List(c *gin.Context) {
-	companyID, _ := uuid.Parse(c.GetString("company_id"))
-
-	units, err := h.usecase.List(c.Request.Context(), companyID)
+	units, err := h.usecase.List(c.Request.Context(), helper.GetCompanyID(c))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		helper.InternalError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": units})
+	helper.Success(c, units)
 }
 
 // GetByID handles GET /units/:id
 func (h *UnitHandler) GetByID(c *gin.Context) {
-	companyID, _ := uuid.Parse(c.GetString("company_id"))
-	id, err := uuid.Parse(c.Param("id"))
+	companyID := helper.GetCompanyID(c)
+	id, err := helper.ParseUUID(c, "id")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid unit id"})
+		helper.InvalidID(c, "unit")
 		return
 	}
 
 	result, err := h.usecase.GetByID(c.Request.Context(), companyID, id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "unit not found"})
+		helper.NotFound(c, "unit")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": result})
+	helper.Success(c, result)
 }
 
 // Delete handles DELETE /units/:id
 func (h *UnitHandler) Delete(c *gin.Context) {
-	companyID, _ := uuid.Parse(c.GetString("company_id"))
-	id, err := uuid.Parse(c.Param("id"))
+	companyID := helper.GetCompanyID(c)
+	id, err := helper.ParseUUID(c, "id")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid unit id"})
+		helper.InvalidID(c, "unit")
 		return
 	}
 
 	if err := h.usecase.Delete(c.Request.Context(), companyID, id); err != nil {
-		status := http.StatusBadRequest
 		if errors.Is(err, unit.ErrUnitNotFound) {
-			status = http.StatusNotFound
+			helper.NotFound(c, "unit")
+			return
 		}
-		c.JSON(status, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "unit deleted"})
+	helper.Deleted(c, "unit")
 }

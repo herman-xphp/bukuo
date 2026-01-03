@@ -61,6 +61,16 @@ func (c *Contact) IsSupplier() bool {
 	return c.ContactType == ContactTypeSupplier || c.ContactType == ContactTypeBoth
 }
 
+// Customer represents a customer entity
+type Customer struct {
+	Contact
+}
+
+// Supplier represents a supplier entity
+type Supplier struct {
+	Contact
+}
+
 // ValidContactTypes returns all valid contact types
 func ValidContactTypes() []ContactType {
 	return []ContactType{ContactTypeCustomer, ContactTypeSupplier, ContactTypeBoth}

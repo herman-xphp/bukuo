@@ -19,7 +19,7 @@ CREATE TABLE tax_rates (
 CREATE TABLE tax_returns (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
-    period_id UUID REFERENCES periods(id),
+    period_id UUID REFERENCES accounting_periods(id),
     tax_rate_id UUID REFERENCES tax_rates(id),
     return_no VARCHAR(50) NOT NULL,
     return_date DATE NOT NULL,
@@ -29,7 +29,7 @@ CREATE TABLE tax_returns (
     payable_amount DECIMAL(20, 2) DEFAULT 0,
     status VARCHAR(20) DEFAULT 'DRAFT',
     notes TEXT,
-    journal_id UUID REFERENCES journals(id),
+    journal_id UUID REFERENCES journal_entries(id),
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(company_id, return_no)

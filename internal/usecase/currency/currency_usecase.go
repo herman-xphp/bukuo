@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/herman-xphp/bukuo/internal/domain/entity"
 	"github.com/herman-xphp/bukuo/internal/domain/repository"
+	"github.com/herman-xphp/bukuo/internal/usecase/common"
 )
 
 // Errors
@@ -38,10 +39,9 @@ type CreateCurrencyInput struct {
 
 // CreateCurrency creates a new currency
 func (uc *CurrencyUsecase) CreateCurrency(ctx context.Context, input CreateCurrencyInput) (*entity.Currency, error) {
-	// Check if code exists
 	exists, err := uc.currencyRepo.ExistsByCode(ctx, input.CompanyID, input.Code)
 	if err != nil {
-		return nil, fmt.Errorf("failed to check code: %w", err)
+		return nil, common.WrapErr("check code", err)
 	}
 	if exists {
 		return nil, ErrCurrencyCodeExists
@@ -50,7 +50,7 @@ func (uc *CurrencyUsecase) CreateCurrency(ctx context.Context, input CreateCurre
 	currency := entity.NewCurrency(input.CompanyID, input.Code, input.Name, input.Symbol, input.DecimalPlaces)
 
 	if err := uc.currencyRepo.Create(ctx, currency); err != nil {
-		return nil, fmt.Errorf("failed to create currency: %w", err)
+		return nil, common.WrapErr("create currency", err)
 	}
 
 	return currency, nil
@@ -88,17 +88,22 @@ func (uc *CurrencyUsecase) GetBaseCurrency(ctx context.Context, companyID uuid.U
 
 // List retrieves all currencies
 func (uc *CurrencyUsecase) List(ctx context.Context, companyID uuid.UUID) ([]entity.Currency, error) {
-	return uc.currencyRepo.List(ctx, companyID)
+	currencies, err := uc.currencyRepo.List(ctx, companyID)
+	if err != nil {
+		return nil, common.WrapErr("list currencies", err)
+	}
+	return currencies, nil
 }
 
 // SetBaseCurrency sets a currency as the base currency
 func (uc *CurrencyUsecase) SetBaseCurrency(ctx context.Context, companyID, currencyID uuid.UUID) error {
-	_, err := uc.currencyRepo.GetByID(ctx, companyID, currencyID)
-	if err != nil {
+	if _, err := uc.currencyRepo.GetByID(ctx, companyID, currencyID); err != nil {
 		return ErrCurrencyNotFound
 	}
-
-	return uc.currencyRepo.SetBaseCurrency(ctx, companyID, currencyID)
+	if err := uc.currencyRepo.SetBaseCurrency(ctx, companyID, currencyID); err != nil {
+		return common.WrapErr("set base currency", err)
+	}
+	return nil
 }
 
 // UpdateCurrencyInput represents input for updating a currency
@@ -122,7 +127,7 @@ func (uc *CurrencyUsecase) UpdateCurrency(ctx context.Context, input UpdateCurre
 	currency.DecimalPlaces = input.DecimalPlaces
 
 	if err := uc.currencyRepo.Update(ctx, currency); err != nil {
-		return nil, fmt.Errorf("failed to update currency: %w", err)
+		return nil, common.WrapErr("update currency", err)
 	}
 
 	return currency, nil
@@ -135,10 +140,12 @@ func (uc *CurrencyUsecase) DeleteCurrency(ctx context.Context, companyID, id uui
 		return ErrCurrencyNotFound
 	}
 
-	// Cannot delete base currency
 	if currency.IsBase {
 		return ErrCannotDeleteBase
 	}
 
-	return uc.currencyRepo.Delete(ctx, companyID, id)
+	if err := uc.currencyRepo.Delete(ctx, companyID, id); err != nil {
+		return common.WrapErr("delete currency", err)
+	}
+	return nil
 }

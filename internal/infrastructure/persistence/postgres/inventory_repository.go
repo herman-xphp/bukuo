@@ -8,13 +8,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/herman-xphp/bukuo/internal/domain/entity"
 	"github.com/herman-xphp/bukuo/internal/domain/repository"
+	"github.com/herman-xphp/bukuo/internal/infrastructure/persistence/postgres/querybuilder"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var _ repository.WarehouseRepository = (*WarehouseRepository)(nil)
 var _ repository.InventoryRepository = (*InventoryRepository)(nil)
 
-// WarehouseRepository implements repository.WarehouseRepository
 type WarehouseRepository struct {
 	db *pgxpool.Pool
 }
@@ -146,26 +146,25 @@ func (r *InventoryRepository) GetTransactionByID(ctx context.Context, companyID,
 }
 
 func (r *InventoryRepository) ListTransactions(ctx context.Context, companyID uuid.UUID, filter repository.InventoryFilter) ([]entity.InventoryTransaction, int64, error) {
-	where := "company_id = $1"
-	args := []interface{}{companyID}
-	argPos := 2
+	qb := querybuilder.New()
+	qb.AddCondition("company_id = $%d", companyID)
+
 	if filter.ProductID != nil {
-		where += fmt.Sprintf(" AND product_id = $%d", argPos)
-		args = append(args, *filter.ProductID)
-		argPos++
+		qb.AddCondition("product_id = $%d", *filter.ProductID)
 	}
 	if filter.WarehouseID != nil {
-		where += fmt.Sprintf(" AND warehouse_id = $%d", argPos)
-		args = append(args, *filter.WarehouseID)
-		argPos++
+		qb.AddCondition("warehouse_id = $%d", *filter.WarehouseID)
 	}
 	if filter.Type != nil {
-		where += fmt.Sprintf(" AND type = $%d", argPos)
-		args = append(args, *filter.Type)
-		argPos++
+		qb.AddCondition("type = $%d", *filter.Type)
 	}
+
+	whereClause := qb.WhereClause()
+
+	// Get count
 	var total int64
-	r.db.QueryRow(ctx, fmt.Sprintf("SELECT COUNT(*) FROM inventory_transactions WHERE %s", where), args...).Scan(&total)
+	r.db.QueryRow(ctx, fmt.Sprintf("SELECT COUNT(*) FROM inventory_transactions WHERE %s", whereClause), qb.Args()...).Scan(&total)
+
 	page, pageSize := filter.Page, filter.PageSize
 	if page < 1 {
 		page = 1
@@ -173,14 +172,18 @@ func (r *InventoryRepository) ListTransactions(ctx context.Context, companyID uu
 	if pageSize < 1 {
 		pageSize = 20
 	}
+
+	limitPos, offsetPos := qb.AddLimitOffset(pageSize, (page-1)*pageSize)
+
 	query := fmt.Sprintf(`SELECT id, company_id, transaction_no, type, product_id, warehouse_id, to_warehouse_id, quantity, unit_cost, total_cost, reference, notes, transaction_date, created_at
-		FROM inventory_transactions WHERE %s ORDER BY transaction_date DESC LIMIT $%d OFFSET $%d`, where, argPos, argPos+1)
-	args = append(args, pageSize, (page-1)*pageSize)
-	rows, err := r.db.Query(ctx, query, args...)
+		FROM inventory_transactions WHERE %s ORDER BY transaction_date DESC LIMIT $%d OFFSET $%d`, whereClause, limitPos, offsetPos)
+
+	rows, err := r.db.Query(ctx, query, qb.Args()...)
 	if err != nil {
 		return nil, 0, err
 	}
 	defer rows.Close()
+
 	var txs []entity.InventoryTransaction
 	for rows.Next() {
 		var tx entity.InventoryTransaction
@@ -203,8 +206,7 @@ func (r *InventoryRepository) GetStock(ctx context.Context, companyID, productID
 }
 
 func (r *InventoryRepository) GetStockByProduct(ctx context.Context, companyID, productID uuid.UUID) ([]entity.ProductStock, error) {
-	query := `SELECT id, company_id, product_id, warehouse_id, quantity, average_cost, updated_at FROM product_stocks WHERE company_id = $1 AND product_id = $2`
-	rows, err := r.db.Query(ctx, query, companyID, productID)
+	rows, err := r.db.Query(ctx, `SELECT id, company_id, product_id, warehouse_id, quantity, average_cost, updated_at FROM product_stocks WHERE company_id = $1 AND product_id = $2`, companyID, productID)
 	if err != nil {
 		return nil, err
 	}
@@ -221,8 +223,7 @@ func (r *InventoryRepository) GetStockByProduct(ctx context.Context, companyID, 
 }
 
 func (r *InventoryRepository) GetStockByWarehouse(ctx context.Context, companyID, warehouseID uuid.UUID) ([]entity.ProductStock, error) {
-	query := `SELECT id, company_id, product_id, warehouse_id, quantity, average_cost, updated_at FROM product_stocks WHERE company_id = $1 AND warehouse_id = $2`
-	rows, err := r.db.Query(ctx, query, companyID, warehouseID)
+	rows, err := r.db.Query(ctx, `SELECT id, company_id, product_id, warehouse_id, quantity, average_cost, updated_at FROM product_stocks WHERE company_id = $1 AND warehouse_id = $2`, companyID, warehouseID)
 	if err != nil {
 		return nil, err
 	}
@@ -251,10 +252,44 @@ func (r *InventoryRepository) UpdateStock(ctx context.Context, stock *entity.Pro
 }
 
 func (r *InventoryRepository) GetTotalStock(ctx context.Context, companyID, productID uuid.UUID) (*entity.ProductStock, error) {
-	query := `SELECT COALESCE(SUM(quantity), 0), COALESCE(AVG(average_cost), 0) FROM product_stocks WHERE company_id = $1 AND product_id = $2`
 	var s entity.ProductStock
 	s.CompanyID = companyID
 	s.ProductID = productID
-	err := r.db.QueryRow(ctx, query, companyID, productID).Scan(&s.Quantity, &s.AverageCost)
+	err := r.db.QueryRow(ctx, `SELECT COALESCE(SUM(quantity), 0), COALESCE(AVG(average_cost), 0) FROM product_stocks WHERE company_id = $1 AND product_id = $2`, companyID, productID).Scan(&s.Quantity, &s.AverageCost)
 	return &s, err
+}
+
+func (r *InventoryRepository) ListStocks(ctx context.Context, companyID uuid.UUID) ([]entity.ProductStock, error) {
+	query := `
+		SELECT 
+			COALESCE(s.id, '00000000-0000-0000-0000-000000000000') as id,
+			p.company_id,
+			p.id as product_id,
+			COALESCE(s.warehouse_id, '00000000-0000-0000-0000-000000000000') as warehouse_id,
+			COALESCE(s.quantity, 0) as quantity,
+			COALESCE(s.average_cost, 0) as average_cost,
+			COALESCE(s.updated_at, p.updated_at) as updated_at,
+			p.name as product_name,
+			p.code as sku,
+			COALESCE(w.name, 'Main Warehouse') as warehouse_name
+		FROM products p
+		LEFT JOIN product_stocks s ON p.id = s.product_id
+		LEFT JOIN warehouses w ON s.warehouse_id = w.id
+		WHERE p.company_id = $1 AND p.is_active = true
+		ORDER BY p.name`
+
+	rows, err := r.db.Query(ctx, query, companyID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var stocks []entity.ProductStock
+	for rows.Next() {
+		var s entity.ProductStock
+		if err := rows.Scan(&s.ID, &s.CompanyID, &s.ProductID, &s.WarehouseID, &s.Quantity, &s.AverageCost, &s.UpdatedAt, &s.ProductName, &s.ProductCode, &s.WarehouseName); err != nil {
+			return nil, err
+		}
+		stocks = append(stocks, s)
+	}
+	return stocks, nil
 }

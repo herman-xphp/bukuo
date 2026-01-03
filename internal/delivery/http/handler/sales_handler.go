@@ -1,13 +1,14 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
+	"github.com/herman-xphp/bukuo/internal/delivery/http/helper"
+	"github.com/herman-xphp/bukuo/internal/domain/entity"
 	"github.com/herman-xphp/bukuo/internal/usecase/sales"
-	"github.com/shopspring/decimal"
 )
 
 // SalesHandler handles sales endpoints
@@ -21,12 +22,14 @@ func NewSalesHandler(uc *sales.SalesUsecase) *SalesHandler {
 }
 
 type CreateInvoiceRequest struct {
-	InvoiceNo   string               `json:"invoice_no" binding:"required"`
-	CustomerID  string               `json:"customer_id" binding:"required"`
-	InvoiceDate string               `json:"invoice_date" binding:"required"`
-	DueDate     string               `json:"due_date" binding:"required"`
-	Lines       []InvoiceLineRequest `json:"lines" binding:"required,min=1"`
-	Notes       string               `json:"notes"`
+	InvoiceNo     string               `json:"invoice_no" binding:"required"`
+	CustomerID    string               `json:"customer_id" binding:"required"`
+	InvoiceDate   string               `json:"invoice_date" binding:"required"`
+	DueDate       string               `json:"due_date" binding:"required"`
+	Lines         []InvoiceLineRequest `json:"lines" binding:"required,min=1"`
+	Notes         string               `json:"notes"`
+	PaymentAmount string               `json:"payment_amount"`
+	Status        string               `json:"status"`
 }
 
 type InvoiceLineRequest struct {
@@ -42,62 +45,116 @@ type InvoiceLineRequest struct {
 func (h *SalesHandler) CreateInvoice(c *gin.Context) {
 	var req CreateInvoiceRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
 
-	companyID, _ := uuid.Parse(c.GetString("company_id"))
-	customerID, _ := uuid.Parse(req.CustomerID)
+	fmt.Printf("DEBUG CreateInvoice Request: %+v\n", req)
+
 	invoiceDate, _ := time.Parse("2006-01-02", req.InvoiceDate)
 	dueDate, _ := time.Parse("2006-01-02", req.DueDate)
 
 	var lines []sales.InvoiceLineInput
 	for _, l := range req.Lines {
-		productID, _ := uuid.Parse(l.ProductID)
-		qty, _ := decimal.NewFromString(l.Quantity)
-		price, _ := decimal.NewFromString(l.UnitPrice)
-		discPct, _ := decimal.NewFromString(l.DiscountPct)
-		taxPct, _ := decimal.NewFromString(l.TaxPct)
-
 		lines = append(lines, sales.InvoiceLineInput{
-			ProductID:   productID,
+			ProductID:   helper.ParseUUIDString(l.ProductID),
 			Description: l.Description,
-			Quantity:    qty,
-			UnitPrice:   price,
-			DiscountPct: discPct,
-			TaxPct:      taxPct,
+			Quantity:    helper.ParseDecimal(l.Quantity),
+			UnitPrice:   helper.ParseDecimal(l.UnitPrice),
+			DiscountPct: helper.ParseDecimal(l.DiscountPct),
+			TaxPct:      helper.ParseDecimal(l.TaxPct),
 		})
 	}
 
+	// Default status
+	status := entity.SalesStatusDraft
+	if req.Status != "" {
+		status = entity.SalesStatus(req.Status)
+	}
+
 	result, err := h.usecase.CreateInvoice(c.Request.Context(), sales.CreateInvoiceInput{
-		CompanyID:   companyID,
-		InvoiceNo:   req.InvoiceNo,
-		CustomerID:  customerID,
-		InvoiceDate: invoiceDate,
-		DueDate:     dueDate,
-		Lines:       lines,
-		Notes:       req.Notes,
+		CompanyID:     helper.GetCompanyID(c),
+		InvoiceNo:     req.InvoiceNo,
+		CustomerID:    helper.ParseUUIDString(req.CustomerID),
+		InvoiceDate:   invoiceDate,
+		DueDate:       dueDate,
+		Lines:         lines,
+		Notes:         req.Notes,
+		Status:        status,
+		PaymentAmount: helper.ParseDecimal(req.PaymentAmount),
 	})
 
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"data": result})
+	helper.Created(c, result)
 }
 
-// ListInvoices handles GET /sales/invoices (placeholder)
+// ListInvoices handles GET /sales/invoices
 func (h *SalesHandler) ListInvoices(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"data": []interface{}{}, "message": "Sales invoices list - DB integration pending"})
+	companyID := helper.GetCompanyID(c)
+	p := helper.ParsePagination(c)
+
+	invoices, total, err := h.usecase.ListInvoices(c.Request.Context(), companyID, p.Page, p.PageSize)
+	if err != nil {
+		helper.InternalError(c, err)
+		return
+	}
+
+	// Custom response to maintain compatibility
+	c.JSON(http.StatusOK, gin.H{
+		"data": invoices,
+		"meta": gin.H{
+			"total":     total,
+			"page":      p.Page,
+			"page_size": p.PageSize,
+		},
+	})
+}
+
+// GetInvoice handles GET /sales/invoices/:id
+func (h *SalesHandler) GetInvoice(c *gin.Context) {
+	companyID := helper.GetCompanyID(c)
+	invoiceID, err := helper.ParseUUID(c, "id")
+	if err != nil {
+		helper.InvalidID(c, "invoice")
+		return
+	}
+
+	invoice, err := h.usecase.GetInvoice(c.Request.Context(), companyID, invoiceID)
+	if err != nil {
+		helper.NotFound(c, "invoice")
+		return
+	}
+
+	helper.Success(c, invoice)
+}
+
+// VoidInvoice handles POST /sales/invoices/:id/void
+func (h *SalesHandler) VoidInvoice(c *gin.Context) {
+	companyID := helper.GetCompanyID(c)
+	invoiceID, err := helper.ParseUUID(c, "id")
+	if err != nil {
+		helper.InvalidID(c, "invoice")
+		return
+	}
+
+	if err := h.usecase.VoidInvoice(c.Request.Context(), companyID, invoiceID); err != nil {
+		helper.InternalError(c, err)
+		return
+	}
+
+	helper.Message(c, "invoice voided successfully")
 }
 
 // ListOrders handles GET /sales/orders (placeholder)
 func (h *SalesHandler) ListOrders(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"data": []interface{}{}, "message": "Sales orders list - DB integration pending"})
+	helper.Success(c, []interface{}{})
 }
 
 // ListQuotations handles GET /sales/quotations (placeholder)
 func (h *SalesHandler) ListQuotations(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"data": []interface{}{}, "message": "Quotations list - DB integration pending"})
+	helper.Success(c, []interface{}{})
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/herman-xphp/bukuo/internal/delivery/http/handler"
 	"github.com/herman-xphp/bukuo/internal/delivery/http/middleware"
 	"github.com/herman-xphp/bukuo/internal/infrastructure/persistence/postgres"
+	"github.com/herman-xphp/bukuo/internal/infrastructure/startup"
 	accountUC "github.com/herman-xphp/bukuo/internal/usecase/account"
 	authUC "github.com/herman-xphp/bukuo/internal/usecase/auth"
 	categoryUC "github.com/herman-xphp/bukuo/internal/usecase/category"
@@ -60,10 +61,13 @@ import (
 // @description Enter: Bearer {token}
 
 func main() {
-	// Load config
+	// Load config (validation happens inside)
 	cfg := config.Load()
 
-	// Setup structured logger
+	// Set Gin to release mode for clean logs
+	gin.SetMode(gin.ReleaseMode)
+
+	// Setup structured logger (silent initially, for internal use)
 	logFormat := "text"
 	if cfg.Server.Env == "production" {
 		logFormat = "json"
@@ -74,18 +78,18 @@ func main() {
 		Environment: cfg.Server.Env,
 	})
 
-	logger.Info("Starting Bukuo API",
-		slog.String("env", cfg.Server.Env),
-		slog.String("port", cfg.Server.Port),
-	)
-
 	// Connect database
 	db, err := database.Connect(cfg.Database)
+	dbConnected := err == nil
 	if err != nil {
+		// Print banner first even on error
+		startup.PrintBanner(cfg, false, cfg.Validation.Errors, cfg.Validation.Warnings)
 		logger.Error("Failed to connect database", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
-	logger.Info("Database connected successfully")
+
+	// Print clean startup banner
+	startup.PrintBanner(cfg, dbConnected, cfg.Validation.Errors, cfg.Validation.Warnings)
 
 	// ============================================
 	// DEPENDENCY INJECTION (Clean Architecture)
@@ -106,6 +110,7 @@ func main() {
 	exchangeRateRepo := postgres.NewExchangeRateRepository(db)
 	warehouseRepo := postgres.NewWarehouseRepository(db)
 	inventoryRepo := postgres.NewInventoryRepository(db)
+	salesInvoiceRepo := postgres.NewSalesInvoiceRepository(db)
 
 	// Transaction Manager
 	txManager := postgres.NewTransactionManager(db)
@@ -125,17 +130,17 @@ func main() {
 	contactUsecase := contactUC.NewContactUsecase(contactRepo)
 	unitUsecase := unitUC.NewUnitUsecase(unitRepo)
 	categoryUsecase := categoryUC.NewCategoryUsecase(categoryRepo)
-	productUsecase := productUC.NewProductUsecase(productRepo)
+	productUsecase := productUC.NewProductUsecase(productRepo, inventoryRepo)
 	currencyUsecase := currencyUC.NewCurrencyUsecase(currencyRepo)
 	exchangerateUsecase := exchangerateUC.NewExchangeRateUsecase(exchangeRateRepo, currencyRepo)
 	warehouseUsecase := warehouseUC.NewWarehouseUsecase(warehouseRepo)
-	inventoryUsecase := inventoryUC.NewInventoryUsecase(inventoryRepo, warehouseRepo, productRepo)
-	salesUsecase := salesUC.NewSalesUsecase()
+	inventoryUsecase := inventoryUC.NewInventoryUsecase(inventoryRepo, warehouseRepo, productRepo, txManager)
+	salesUsecase := salesUC.NewSalesUsecase(salesInvoiceRepo, inventoryUsecase, warehouseRepo, txManager)
 
 	// Delivery Layer - HTTP Handlers
 	handlers := &httpDelivery.Handlers{
 		Health:       handler.NewHealthHandler(),
-		Auth:         handler.NewAuthHandler(authUsecase),
+		Auth:         handler.NewAuthHandler(authUsecase, jwtService),
 		Account:      handler.NewAccountHandler(accountUsecase),
 		Period:       handler.NewPeriodHandler(periodUsecase),
 		Journal:      handler.NewJournalHandler(journalUsecase),
@@ -152,36 +157,50 @@ func main() {
 		Warehouse:    handler.NewWarehouseHandler(warehouseUsecase),
 		Inventory:    handler.NewInventoryHandler(inventoryUsecase),
 		Sales:        handler.NewSalesHandler(salesUsecase),
+		Upload:       handler.NewUploadHandler("./uploads", "http://localhost:"+cfg.Server.Port),
 	}
 
 	// Middleware
 	authMiddleware := middleware.NewAuthMiddleware(jwtService)
-	rateLimiter := middleware.NewRateLimiter(cfg.Security.RateLimitPerMin, time.Minute)
+	rateLimiter := middleware.NewRateLimiter(cfg.RateLimit.GlobalPerMin, time.Duration(cfg.RateLimit.GlobalWindowSec)*time.Second)
+
+	// Start periodic cleanup goroutine to prevent memory leak
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			rateLimiter.Cleanup()
+		}
+	}()
 
 	// ============================================
 	// ROUTER SETUP
 	// ============================================
 
-	if cfg.Server.Env == "production" {
-		gin.SetMode(gin.ReleaseMode)
-	}
+	// Gin already set to ReleaseMode at startup
 	r := gin.New()
 
 	// Global middleware
 	r.Use(middleware.RequestLogger(logger)) // Structured logging
 	r.Use(middleware.RecoveryHandler(cfg.Server.Env))
+	r.Use(middleware.SecurityHeaders())                 // Security headers
+	r.Use(middleware.StrictTransportSecurity(31536000)) // HSTS
 	corsConfig := middleware.CORSConfig{
 		AllowedOrigins: cfg.Security.AllowedOrigins,
 		Environment:    cfg.Server.Env,
 	}
 	r.Use(middleware.NewCORSMiddleware(corsConfig))
-	r.Use(rateLimiter.RateLimitMiddleware())
+	if cfg.RateLimit.Enabled {
+		r.Use(rateLimiter.RateLimitMiddleware())
+	}
 
 	// 404 handler
 	r.NoRoute(middleware.NotFoundHandler())
 
-	// Swagger
-	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+	// Swagger (with feature flag)
+	if cfg.Features.EnableSwagger {
+		r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+	}
 
 	// Setup routes with injected dependencies
 	httpDelivery.SetupRouter(r, handlers, authMiddleware)
@@ -193,17 +212,13 @@ func main() {
 	srv := &http.Server{
 		Addr:         ":" + cfg.Server.Port,
 		Handler:      r,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		ReadTimeout:  cfg.Server.ReadTimeout,
+		WriteTimeout: cfg.Server.WriteTimeout,
+		IdleTimeout:  cfg.Server.IdleTimeout,
 	}
 
 	// Start server in goroutine
 	go func() {
-		logger.Info("🚀 Bukuo API started",
-			slog.String("port", cfg.Server.Port),
-			slog.String("swagger", "http://localhost:"+cfg.Server.Port+"/swagger/index.html"),
-		)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Error("Server error", slog.String("error", err.Error()))
 			os.Exit(1)
@@ -215,7 +230,7 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	logger.Info("⏳ Shutting down server...")
+	startup.PrintShutdownBanner()
 
 	// Give outstanding requests 30 seconds to complete
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -228,7 +243,6 @@ func main() {
 
 	// Close database connection
 	db.Close()
-	logger.Info("✅ Database connection closed")
 
-	logger.Info("👋 Server exited gracefully")
+	startup.PrintShutdownComplete()
 }

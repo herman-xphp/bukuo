@@ -3,12 +3,12 @@ package postgres
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/herman-xphp/bukuo/internal/domain/entity"
 	"github.com/herman-xphp/bukuo/internal/domain/repository"
+	"github.com/herman-xphp/bukuo/internal/infrastructure/persistence/postgres/querybuilder"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -86,39 +86,26 @@ func (r *ContactRepository) GetByCode(ctx context.Context, companyID uuid.UUID, 
 }
 
 func (r *ContactRepository) List(ctx context.Context, companyID uuid.UUID, filter repository.ContactFilter) ([]entity.Contact, int64, error) {
-	var conditions []string
-	var args []interface{}
-	argPos := 1
-
-	conditions = append(conditions, fmt.Sprintf("company_id = $%d", argPos))
-	args = append(args, companyID)
-	argPos++
+	// Build query using querybuilder
+	qb := querybuilder.New()
+	qb.AddCondition("company_id = $%d", companyID)
 
 	if filter.ContactType != nil {
-		conditions = append(conditions, fmt.Sprintf("contact_type = $%d", argPos))
-		args = append(args, *filter.ContactType)
-		argPos++
+		qb.AddCondition("contact_type = $%d", *filter.ContactType)
 	}
-
 	if filter.Search != "" {
-		conditions = append(conditions, fmt.Sprintf("(name ILIKE $%d OR code ILIKE $%d)", argPos, argPos))
-		args = append(args, "%"+filter.Search+"%")
-		argPos++
+		qb.AddSearch(filter.Search, "name", "code")
 	}
-
 	if filter.IsActive != nil {
-		conditions = append(conditions, fmt.Sprintf("is_active = $%d", argPos))
-		args = append(args, *filter.IsActive)
-		argPos++
+		qb.AddCondition("is_active = $%d", *filter.IsActive)
 	}
 
-	whereClause := strings.Join(conditions, " AND ")
+	whereClause := qb.WhereClause()
 
 	// Get total count
 	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM contacts WHERE %s", whereClause)
 	var total int64
-	err := r.db.QueryRow(ctx, countQuery, args...).Scan(&total)
-	if err != nil {
+	if err := r.db.QueryRow(ctx, countQuery, qb.Args()...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 
@@ -133,6 +120,8 @@ func (r *ContactRepository) List(ctx context.Context, companyID uuid.UUID, filte
 	}
 	offset := (page - 1) * pageSize
 
+	limitPos, offsetPos := qb.AddLimitOffset(pageSize, offset)
+
 	query := fmt.Sprintf(`
 		SELECT id, company_id, code, name, contact_type, email, phone, 
 			   address, city, tax_id, credit_limit, payment_term_days, 
@@ -141,11 +130,9 @@ func (r *ContactRepository) List(ctx context.Context, companyID uuid.UUID, filte
 		WHERE %s 
 		ORDER BY code
 		LIMIT $%d OFFSET $%d
-	`, whereClause, argPos, argPos+1)
+	`, whereClause, limitPos, offsetPos)
 
-	args = append(args, pageSize, offset)
-
-	rows, err := r.db.Query(ctx, query, args...)
+	rows, err := r.db.Query(ctx, query, qb.Args()...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -154,13 +141,12 @@ func (r *ContactRepository) List(ctx context.Context, companyID uuid.UUID, filte
 	var contacts []entity.Contact
 	for rows.Next() {
 		var contact entity.Contact
-		err := rows.Scan(
+		if err := rows.Scan(
 			&contact.ID, &contact.CompanyID, &contact.Code, &contact.Name, &contact.ContactType,
 			&contact.Email, &contact.Phone, &contact.Address, &contact.City, &contact.TaxID,
 			&contact.CreditLimit, &contact.PaymentTermDays, &contact.IsActive,
 			&contact.CreatedAt, &contact.UpdatedAt,
-		)
-		if err != nil {
+		); err != nil {
 			return nil, 0, err
 		}
 		contacts = append(contacts, contact)
@@ -186,7 +172,6 @@ func (r *ContactRepository) Update(ctx context.Context, contact *entity.Contact)
 }
 
 func (r *ContactRepository) Delete(ctx context.Context, companyID, id uuid.UUID) error {
-	// Soft delete by setting is_active = false
 	query := `UPDATE contacts SET is_active = false, updated_at = $3 WHERE company_id = $1 AND id = $2`
 	_, err := r.db.Exec(ctx, query, companyID, id, time.Now())
 	return err

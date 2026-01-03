@@ -8,18 +8,16 @@ import (
 	"github.com/google/uuid"
 	"github.com/herman-xphp/bukuo/internal/domain/entity"
 	"github.com/herman-xphp/bukuo/internal/domain/repository"
+	"github.com/herman-xphp/bukuo/internal/infrastructure/persistence/postgres/querybuilder"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Verify interface implementation at compile time
 var _ repository.PeriodRepository = (*PeriodRepository)(nil)
 
-// PeriodRepository implements repository.PeriodRepository for PostgreSQL
 type PeriodRepository struct {
 	db *pgxpool.Pool
 }
 
-// NewPeriodRepository creates a new PeriodRepository
 func NewPeriodRepository(db *pgxpool.Pool) *PeriodRepository {
 	return &PeriodRepository{db: db}
 }
@@ -83,11 +81,10 @@ func (r *PeriodRepository) GetByCompany(ctx context.Context, companyID uuid.UUID
 	var periods []entity.AccountingPeriod
 	for rows.Next() {
 		var p entity.AccountingPeriod
-		err := rows.Scan(
+		if err := rows.Scan(
 			&p.ID, &p.CompanyID, &p.Name, &p.StartDate, &p.EndDate,
 			&p.Status, &p.ClosedAt, &p.ClosedBy, &p.CreatedAt,
-		)
-		if err != nil {
+		); err != nil {
 			return nil, err
 		}
 		periods = append(periods, p)
@@ -109,11 +106,10 @@ func (r *PeriodRepository) GetOpenPeriods(ctx context.Context, companyID uuid.UU
 	var periods []entity.AccountingPeriod
 	for rows.Next() {
 		var p entity.AccountingPeriod
-		err := rows.Scan(
+		if err := rows.Scan(
 			&p.ID, &p.CompanyID, &p.Name, &p.StartDate, &p.EndDate,
 			&p.Status, &p.ClosedAt, &p.ClosedBy, &p.CreatedAt,
-		)
-		if err != nil {
+		); err != nil {
 			return nil, err
 		}
 		periods = append(periods, p)
@@ -141,22 +137,22 @@ func (r *PeriodRepository) Delete(ctx context.Context, id uuid.UUID) error {
 }
 
 func (r *PeriodRepository) List(ctx context.Context, companyID uuid.UUID, limit, offset int, search string) ([]entity.AccountingPeriod, error) {
-	whereClause := `WHERE company_id = $1`
-	args := []interface{}{companyID}
+	qb := querybuilder.New()
+	qb.AddCondition("company_id = $%d", companyID)
 
 	if search != "" {
-		whereClause += fmt.Sprintf(` AND (name ILIKE $%d OR status ILIKE $%d)`, len(args)+1, len(args)+1)
-		args = append(args, "%"+search+"%")
+		qb.AddSearch(search, "name", "status")
 	}
+
+	whereClause := qb.WhereClause()
+	limitPos, offsetPos := qb.AddLimitOffset(limit, offset)
 
 	query := fmt.Sprintf(`
 		SELECT id, company_id, name, start_date, end_date, status, closed_at, closed_by, created_at
-		FROM accounting_periods %s ORDER BY start_date DESC LIMIT $%d OFFSET $%d
-	`, whereClause, len(args)+1, len(args)+2)
+		FROM accounting_periods WHERE %s ORDER BY start_date DESC LIMIT $%d OFFSET $%d
+	`, whereClause, limitPos, offsetPos)
 
-	args = append(args, limit, offset)
-
-	rows, err := r.db.Query(ctx, query, args...)
+	rows, err := r.db.Query(ctx, query, qb.Args()...)
 	if err != nil {
 		return nil, err
 	}
@@ -165,11 +161,10 @@ func (r *PeriodRepository) List(ctx context.Context, companyID uuid.UUID, limit,
 	var periods []entity.AccountingPeriod
 	for rows.Next() {
 		var p entity.AccountingPeriod
-		err := rows.Scan(
+		if err := rows.Scan(
 			&p.ID, &p.CompanyID, &p.Name, &p.StartDate, &p.EndDate,
 			&p.Status, &p.ClosedAt, &p.ClosedBy, &p.CreatedAt,
-		)
-		if err != nil {
+		); err != nil {
 			return nil, err
 		}
 		periods = append(periods, p)
@@ -178,16 +173,15 @@ func (r *PeriodRepository) List(ctx context.Context, companyID uuid.UUID, limit,
 }
 
 func (r *PeriodRepository) Count(ctx context.Context, companyID uuid.UUID, search string) (int, error) {
-	whereClause := `WHERE company_id = $1`
-	args := []interface{}{companyID}
+	qb := querybuilder.New()
+	qb.AddCondition("company_id = $%d", companyID)
 
 	if search != "" {
-		whereClause += fmt.Sprintf(` AND (name ILIKE $%d OR status ILIKE $%d)`, len(args)+1, len(args)+1)
-		args = append(args, "%"+search+"%")
+		qb.AddSearch(search, "name", "status")
 	}
 
-	query := fmt.Sprintf(`SELECT COUNT(*) FROM accounting_periods %s`, whereClause)
+	query := fmt.Sprintf(`SELECT COUNT(*) FROM accounting_periods WHERE %s`, qb.WhereClause())
 	var count int
-	err := r.db.QueryRow(ctx, query, args...).Scan(&count)
+	err := r.db.QueryRow(ctx, query, qb.Args()...).Scan(&count)
 	return count, err
 }

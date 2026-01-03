@@ -1,9 +1,8 @@
 package handler
 
 import (
-	"net/http"
-
 	"github.com/gin-gonic/gin"
+	"github.com/herman-xphp/bukuo/internal/delivery/http/helper"
 )
 
 // HealthHandler handles health check endpoints
@@ -16,7 +15,7 @@ func NewHealthHandler() *HealthHandler {
 
 // Health handles GET /health
 func (h *HealthHandler) Health(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
+	helper.Success(c, gin.H{
 		"status":  "ok",
 		"service": "bukuo",
 	})
@@ -24,5 +23,5 @@ func (h *HealthHandler) Health(c *gin.Context) {
 
 // Ping handles GET /ping
 func (h *HealthHandler) Ping(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"message": "pong"})
+	helper.Message(c, "pong")
 }

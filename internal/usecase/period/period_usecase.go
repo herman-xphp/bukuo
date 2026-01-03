@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/herman-xphp/bukuo/internal/domain/entity"
 	"github.com/herman-xphp/bukuo/internal/domain/repository"
+	"github.com/herman-xphp/bukuo/internal/usecase/common"
 )
 
 // PeriodUsecase handles accounting period business logic
@@ -37,7 +38,7 @@ func (uc *PeriodUsecase) CreatePeriod(ctx context.Context, input CreatePeriodInp
 	period := entity.NewAccountingPeriod(input.CompanyID, input.Name, input.StartDate, input.EndDate)
 
 	if err := uc.periodRepo.Create(ctx, period); err != nil {
-		return nil, fmt.Errorf("failed to create period: %w", err)
+		return nil, common.WrapErr("create period", err)
 	}
 
 	return period, nil
@@ -50,25 +51,27 @@ func (uc *PeriodUsecase) GetByID(ctx context.Context, id uuid.UUID) (*entity.Acc
 
 // GetByCompany retrieves all periods for a company
 func (uc *PeriodUsecase) GetByCompany(ctx context.Context, companyID uuid.UUID) ([]entity.AccountingPeriod, error) {
-	return uc.periodRepo.GetByCompany(ctx, companyID)
+	periods, err := uc.periodRepo.GetByCompany(ctx, companyID)
+	if err != nil {
+		return nil, common.WrapErr("get periods", err)
+	}
+	return periods, nil
 }
 
 func (uc *PeriodUsecase) List(ctx context.Context, companyID uuid.UUID, limit, offset int, search string) ([]entity.AccountingPeriod, int, error) {
+	p := common.ValidatePagination(1, limit)
 	if limit <= 0 {
-		limit = 50
-	}
-	if limit > 100 {
-		limit = 100
+		limit = p.PageSize
 	}
 
 	periods, err := uc.periodRepo.List(ctx, companyID, limit, offset, search)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, common.WrapErr("list periods", err)
 	}
 
 	total, err := uc.periodRepo.Count(ctx, companyID, search)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, common.WrapErr("count periods", err)
 	}
 
 	return periods, total, nil
@@ -76,7 +79,11 @@ func (uc *PeriodUsecase) List(ctx context.Context, companyID uuid.UUID, limit, o
 
 // GetOpenPeriods retrieves open periods for a company
 func (uc *PeriodUsecase) GetOpenPeriods(ctx context.Context, companyID uuid.UUID) ([]entity.AccountingPeriod, error) {
-	return uc.periodRepo.GetOpenPeriods(ctx, companyID)
+	periods, err := uc.periodRepo.GetOpenPeriods(ctx, companyID)
+	if err != nil {
+		return nil, common.WrapErr("get open periods", err)
+	}
+	return periods, nil
 }
 
 // UpdatePeriod updates an existing accounting period
@@ -95,7 +102,7 @@ func (uc *PeriodUsecase) UpdatePeriod(ctx context.Context, id uuid.UUID, input C
 	period.EndDate = input.EndDate
 
 	if err := uc.periodRepo.Update(ctx, period); err != nil {
-		return nil, fmt.Errorf("failed to update period: %w", err)
+		return nil, common.WrapErr("update period", err)
 	}
 
 	return period, nil
@@ -103,7 +110,10 @@ func (uc *PeriodUsecase) UpdatePeriod(ctx context.Context, id uuid.UUID, input C
 
 // DeletePeriod deletes an accounting period
 func (uc *PeriodUsecase) DeletePeriod(ctx context.Context, id uuid.UUID) error {
-	return uc.periodRepo.Delete(ctx, id)
+	if err := uc.periodRepo.Delete(ctx, id); err != nil {
+		return common.WrapErr("delete period", err)
+	}
+	return nil
 }
 
 // ClosePeriod closes an accounting period
@@ -118,7 +128,7 @@ func (uc *PeriodUsecase) ClosePeriod(ctx context.Context, id, userID uuid.UUID) 
 	}
 
 	if err := uc.periodRepo.Update(ctx, period); err != nil {
-		return nil, err
+		return nil, common.WrapErr("close period", err)
 	}
 
 	return period, nil

@@ -43,6 +43,7 @@ type SalesInvoiceRepository interface {
 	List(ctx context.Context, companyID uuid.UUID, filter SalesFilter) ([]entity.SalesInvoice, int64, error)
 	Update(ctx context.Context, inv *entity.SalesInvoice) error
 	UpdatePaidAmount(ctx context.Context, companyID, id uuid.UUID, paidAmount interface{}) error
+	UpdateStatus(ctx context.Context, companyID, id uuid.UUID, status entity.SalesStatus) error
 }
 
 // DeliveryOrderRepository defines delivery data access

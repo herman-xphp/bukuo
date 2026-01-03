@@ -3,12 +3,12 @@ package contact
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/herman-xphp/bukuo/internal/domain/entity"
 	"github.com/herman-xphp/bukuo/internal/domain/repository"
+	"github.com/herman-xphp/bukuo/internal/usecase/common"
 	"github.com/shopspring/decimal"
 )
 
@@ -46,15 +46,13 @@ type CreateContactInput struct {
 
 // CreateContact creates a new contact
 func (uc *ContactUsecase) CreateContact(ctx context.Context, input CreateContactInput) (*entity.Contact, error) {
-	// Validate contact type
 	if !entity.IsValidContactType(input.ContactType) {
 		return nil, ErrInvalidContactType
 	}
 
-	// Check if code exists
 	exists, err := uc.contactRepo.ExistsByCode(ctx, input.CompanyID, input.Code, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to check code: %w", err)
+		return nil, common.WrapErr("check code", err)
 	}
 	if exists {
 		return nil, ErrContactCodeExists
@@ -74,7 +72,7 @@ func (uc *ContactUsecase) CreateContact(ctx context.Context, input CreateContact
 	}
 
 	if err := uc.contactRepo.Create(ctx, contact); err != nil {
-		return nil, fmt.Errorf("failed to create contact: %w", err)
+		return nil, common.WrapErr("create contact", err)
 	}
 
 	return contact, nil
@@ -110,40 +108,27 @@ type ListOutput struct {
 
 // List retrieves contacts with filtering and pagination
 func (uc *ContactUsecase) List(ctx context.Context, input ListInput) (*ListOutput, error) {
-	if input.Page < 1 {
-		input.Page = 1
-	}
-	if input.PageSize < 1 {
-		input.PageSize = 20
-	}
-	if input.PageSize > 100 {
-		input.PageSize = 100
-	}
+	p := common.ValidatePagination(input.Page, input.PageSize)
 
 	filter := repository.ContactFilter{
 		ContactType: input.ContactType,
 		Search:      input.Search,
 		IsActive:    input.IsActive,
-		Page:        input.Page,
-		PageSize:    input.PageSize,
+		Page:        p.Page,
+		PageSize:    p.PageSize,
 	}
 
 	contacts, total, err := uc.contactRepo.List(ctx, input.CompanyID, filter)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list contacts: %w", err)
-	}
-
-	totalPages := total / int64(input.PageSize)
-	if total%int64(input.PageSize) > 0 {
-		totalPages++
+		return nil, common.WrapErr("list contacts", err)
 	}
 
 	return &ListOutput{
 		Contacts:   contacts,
 		Total:      total,
-		Page:       input.Page,
-		PageSize:   input.PageSize,
-		TotalPages: totalPages,
+		Page:       p.Page,
+		PageSize:   p.PageSize,
+		TotalPages: common.CalculateTotalPages(total, p.PageSize),
 	}, nil
 }
 
@@ -165,7 +150,6 @@ type UpdateContactInput struct {
 
 // UpdateContact updates an existing contact
 func (uc *ContactUsecase) UpdateContact(ctx context.Context, input UpdateContactInput) (*entity.Contact, error) {
-	// Validate contact type
 	if !entity.IsValidContactType(input.ContactType) {
 		return nil, ErrInvalidContactType
 	}
@@ -188,7 +172,7 @@ func (uc *ContactUsecase) UpdateContact(ctx context.Context, input UpdateContact
 	contact.UpdatedAt = time.Now()
 
 	if err := uc.contactRepo.Update(ctx, contact); err != nil {
-		return nil, fmt.Errorf("failed to update contact: %w", err)
+		return nil, common.WrapErr("update contact", err)
 	}
 
 	return contact, nil
@@ -196,14 +180,12 @@ func (uc *ContactUsecase) UpdateContact(ctx context.Context, input UpdateContact
 
 // DeleteContact soft-deletes a contact
 func (uc *ContactUsecase) DeleteContact(ctx context.Context, companyID, id uuid.UUID) error {
-	// Check if contact exists
-	_, err := uc.contactRepo.GetByID(ctx, companyID, id)
-	if err != nil {
+	if _, err := uc.contactRepo.GetByID(ctx, companyID, id); err != nil {
 		return ErrContactNotFound
 	}
 
 	if err := uc.contactRepo.Delete(ctx, companyID, id); err != nil {
-		return fmt.Errorf("failed to delete contact: %w", err)
+		return common.WrapErr("delete contact", err)
 	}
 
 	return nil

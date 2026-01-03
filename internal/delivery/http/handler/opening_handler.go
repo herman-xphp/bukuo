@@ -1,13 +1,11 @@
 package handler
 
 import (
-	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
+	"github.com/herman-xphp/bukuo/internal/delivery/http/helper"
 	"github.com/herman-xphp/bukuo/internal/usecase/opening"
-	"github.com/shopspring/decimal"
 )
 
 // OpeningHandler handles opening balance endpoints
@@ -37,39 +35,32 @@ type OpeningBalanceItemRequest struct {
 func (h *OpeningHandler) Import(c *gin.Context) {
 	var req ImportOpeningBalanceRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
 
-	periodID, err := uuid.Parse(req.PeriodID)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid period_id"})
+	periodID := helper.ParseUUIDString(req.PeriodID)
+	if periodID.String() == "00000000-0000-0000-0000-000000000000" {
+		helper.BadRequestMessage(c, "invalid period_id")
 		return
 	}
 
 	balanceDate, err := time.Parse("2006-01-02", req.BalanceDate)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid balance_date, use YYYY-MM-DD"})
+		helper.BadRequestMessage(c, "invalid balance_date, use YYYY-MM-DD")
 		return
 	}
-
-	companyID, _ := uuid.Parse(c.GetString("company_id"))
-	userID, _ := uuid.Parse(c.GetString("user_id"))
 
 	// Parse balances
 	balances := make([]opening.OpeningBalanceInput, 0, len(req.Balances))
 	for _, b := range req.Balances {
-		accountID, err := uuid.Parse(b.AccountID)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid account_id: " + b.AccountID})
+		accountID := helper.ParseUUIDString(b.AccountID)
+		if accountID.String() == "00000000-0000-0000-0000-000000000000" {
+			helper.BadRequestMessage(c, "invalid account_id: "+b.AccountID)
 			return
 		}
 
-		balance, err := decimal.NewFromString(b.Balance)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid balance value: " + b.Balance})
-			return
-		}
+		balance := helper.ParseDecimal(b.Balance)
 
 		balances = append(balances, opening.OpeningBalanceInput{
 			AccountID: accountID,
@@ -78,20 +69,20 @@ func (h *OpeningHandler) Import(c *gin.Context) {
 	}
 
 	input := opening.ImportOpeningBalanceInput{
-		CompanyID:   companyID,
+		CompanyID:   helper.GetCompanyID(c),
 		PeriodID:    periodID,
-		UserID:      userID,
+		UserID:      helper.GetUserID(c),
 		BalanceDate: balanceDate,
 		Balances:    balances,
 	}
 
 	result, err := h.usecase.ImportOpeningBalance(c.Request.Context(), input)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		helper.BadRequest(c, err)
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{
+	helper.Created(c, gin.H{
 		"message":       "Opening balance imported successfully",
 		"total_debit":   result.TotalDebit,
 		"total_credit":  result.TotalCredit,
@@ -102,15 +93,13 @@ func (h *OpeningHandler) Import(c *gin.Context) {
 
 // Template handles GET /opening-balance/template
 func (h *OpeningHandler) Template(c *gin.Context) {
-	companyID, _ := uuid.Parse(c.GetString("company_id"))
-
-	result, err := h.usecase.GetOpeningBalanceTemplate(c.Request.Context(), companyID)
+	result, err := h.usecase.GetOpeningBalanceTemplate(c.Request.Context(), helper.GetCompanyID(c))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		helper.InternalError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	helper.Success(c, gin.H{
 		"data":  result,
 		"count": len(result),
 	})

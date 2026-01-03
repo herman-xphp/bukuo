@@ -3,11 +3,11 @@ package category
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/herman-xphp/bukuo/internal/domain/entity"
 	"github.com/herman-xphp/bukuo/internal/domain/repository"
+	"github.com/herman-xphp/bukuo/internal/usecase/common"
 )
 
 // Errors
@@ -37,7 +37,7 @@ func (uc *CategoryUsecase) CreateCategory(ctx context.Context, input CreateCateg
 	category := entity.NewProductCategory(input.CompanyID, input.Name, input.ParentID)
 
 	if err := uc.categoryRepo.Create(ctx, category); err != nil {
-		return nil, fmt.Errorf("failed to create category: %w", err)
+		return nil, common.WrapErr("create category", err)
 	}
 
 	return category, nil
@@ -45,7 +45,11 @@ func (uc *CategoryUsecase) CreateCategory(ctx context.Context, input CreateCateg
 
 // List retrieves all categories for a company
 func (uc *CategoryUsecase) List(ctx context.Context, companyID uuid.UUID) ([]entity.ProductCategory, error) {
-	return uc.categoryRepo.List(ctx, companyID)
+	cats, err := uc.categoryRepo.List(ctx, companyID)
+	if err != nil {
+		return nil, common.WrapErr("list categories", err)
+	}
+	return cats, nil
 }
 
 // GetByID retrieves a category by ID
@@ -76,7 +80,7 @@ func (uc *CategoryUsecase) UpdateCategory(ctx context.Context, input UpdateCateg
 	cat.ParentID = input.ParentID
 
 	if err := uc.categoryRepo.Update(ctx, cat); err != nil {
-		return nil, fmt.Errorf("failed to update category: %w", err)
+		return nil, common.WrapErr("update category", err)
 	}
 
 	return cat, nil
@@ -84,9 +88,11 @@ func (uc *CategoryUsecase) UpdateCategory(ctx context.Context, input UpdateCateg
 
 // Delete deletes a category
 func (uc *CategoryUsecase) Delete(ctx context.Context, companyID, id uuid.UUID) error {
-	_, err := uc.categoryRepo.GetByID(ctx, companyID, id)
-	if err != nil {
+	if _, err := uc.categoryRepo.GetByID(ctx, companyID, id); err != nil {
 		return ErrCategoryNotFound
 	}
-	return uc.categoryRepo.Delete(ctx, companyID, id)
+	if err := uc.categoryRepo.Delete(ctx, companyID, id); err != nil {
+		return common.WrapErr("delete category", err)
+	}
+	return nil
 }

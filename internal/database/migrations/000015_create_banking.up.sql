@@ -25,7 +25,7 @@ CREATE TABLE bank_transactions (
     amount DECIMAL(20, 2) NOT NULL,
     description TEXT,
     reference VARCHAR(100),
-    journal_id UUID REFERENCES journals(id),
+    journal_id UUID REFERENCES journal_entries(id),
     reconciled BOOLEAN DEFAULT FALSE,
     reconciled_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -44,7 +44,7 @@ CREATE TABLE payments (
     payment_method VARCHAR(20) NOT NULL,
     total_amount DECIMAL(20, 2) NOT NULL,
     notes TEXT,
-    journal_id UUID REFERENCES journals(id),
+    journal_id UUID REFERENCES journal_entries(id),
     created_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(company_id, payment_no)
 );
@@ -64,7 +64,7 @@ CREATE TABLE bank_reconciliations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
     bank_account_id UUID NOT NULL REFERENCES bank_accounts(id),
-    period_id UUID REFERENCES periods(id),
+    period_id UUID REFERENCES accounting_periods(id),
     statement_date DATE NOT NULL,
     statement_balance DECIMAL(20, 2) NOT NULL,
     book_balance DECIMAL(20, 2) NOT NULL,
@@ -84,7 +84,7 @@ CREATE TABLE cash_transactions (
     amount DECIMAL(20, 2) NOT NULL,
     description TEXT,
     category VARCHAR(50),
-    journal_id UUID REFERENCES journals(id),
+    journal_id UUID REFERENCES journal_entries(id),
     created_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(company_id, transaction_no)
 );

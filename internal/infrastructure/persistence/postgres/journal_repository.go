@@ -8,19 +8,17 @@ import (
 	"github.com/google/uuid"
 	"github.com/herman-xphp/bukuo/internal/domain/entity"
 	"github.com/herman-xphp/bukuo/internal/domain/repository"
+	"github.com/herman-xphp/bukuo/internal/infrastructure/persistence/postgres/querybuilder"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/shopspring/decimal"
 )
 
-// Verify interface implementation at compile time
 var _ repository.JournalRepository = (*JournalRepository)(nil)
 
-// JournalRepository implements repository.JournalRepository for PostgreSQL
 type JournalRepository struct {
 	db *pgxpool.Pool
 }
 
-// NewJournalRepository creates a new JournalRepository
 func NewJournalRepository(db *pgxpool.Pool) *JournalRepository {
 	return &JournalRepository{db: db}
 }
@@ -32,7 +30,6 @@ func (r *JournalRepository) Create(ctx context.Context, journal *entity.JournalE
 	}
 	defer tx.Rollback(ctx)
 
-	// Insert header
 	headerQuery := `
 		INSERT INTO journal_entries 
 		(id, company_id, period_id, entry_number, entry_date, description, status, source_type, source_id, created_by, created_at)
@@ -47,7 +44,6 @@ func (r *JournalRepository) Create(ctx context.Context, journal *entity.JournalE
 		return err
 	}
 
-	// Insert lines
 	lineQuery := `
 		INSERT INTO journal_lines 
 		(id, journal_id, line_number, account_id, description, debit_amount, credit_amount)
@@ -67,7 +63,6 @@ func (r *JournalRepository) Create(ctx context.Context, journal *entity.JournalE
 }
 
 func (r *JournalRepository) GetByID(ctx context.Context, id uuid.UUID) (*entity.JournalEntry, error) {
-	// Get header
 	headerQuery := `
 		SELECT id, company_id, period_id, entry_number, entry_date, description, status, 
 		       source_type, source_id, created_by, created_at, posted_at, posted_by
@@ -83,7 +78,6 @@ func (r *JournalRepository) GetByID(ctx context.Context, id uuid.UUID) (*entity.
 		return nil, err
 	}
 
-	// Get lines
 	lineQuery := `
 		SELECT id, journal_id, line_number, account_id, description, debit_amount, credit_amount
 		FROM journal_lines WHERE journal_id = $1 ORDER BY line_number
@@ -96,11 +90,10 @@ func (r *JournalRepository) GetByID(ctx context.Context, id uuid.UUID) (*entity.
 
 	for rows.Next() {
 		var line entity.JournalLine
-		err := rows.Scan(
+		if err := rows.Scan(
 			&line.ID, &line.JournalID, &line.LineNumber, &line.AccountID,
 			&line.Description, &line.DebitAmount, &line.CreditAmount,
-		)
-		if err != nil {
+		); err != nil {
 			return nil, err
 		}
 		j.Lines = append(j.Lines, line)
@@ -110,9 +103,8 @@ func (r *JournalRepository) GetByID(ctx context.Context, id uuid.UUID) (*entity.
 }
 
 func (r *JournalRepository) GetByEntryNumber(ctx context.Context, companyID uuid.UUID, number string) (*entity.JournalEntry, error) {
-	query := `SELECT id FROM journal_entries WHERE company_id = $1 AND entry_number = $2`
 	var id uuid.UUID
-	err := r.db.QueryRow(ctx, query, companyID, number).Scan(&id)
+	err := r.db.QueryRow(ctx, `SELECT id FROM journal_entries WHERE company_id = $1 AND entry_number = $2`, companyID, number).Scan(&id)
 	if err != nil {
 		return nil, err
 	}
@@ -120,37 +112,28 @@ func (r *JournalRepository) GetByEntryNumber(ctx context.Context, companyID uuid
 }
 
 func (r *JournalRepository) GetByPeriod(ctx context.Context, periodID uuid.UUID) ([]entity.JournalEntry, error) {
-	return r.getJournalsWithLines(ctx,
-		`WHERE j.period_id = $1 ORDER BY j.entry_date, j.entry_number, jl.line_number`,
-		periodID,
-	)
+	return r.getJournalsWithLines(ctx, `WHERE j.period_id = $1 ORDER BY j.entry_date, j.entry_number, jl.line_number`, periodID)
 }
 
 func (r *JournalRepository) GetByDateRange(ctx context.Context, companyID uuid.UUID, start, end time.Time) ([]entity.JournalEntry, error) {
-	return r.getJournalsWithLines(ctx,
-		`WHERE j.company_id = $1 AND j.entry_date BETWEEN $2 AND $3 ORDER BY j.entry_date, j.entry_number, jl.line_number`,
-		companyID, start, end,
-	)
+	return r.getJournalsWithLines(ctx, `WHERE j.company_id = $1 AND j.entry_date BETWEEN $2 AND $3 ORDER BY j.entry_date, j.entry_number, jl.line_number`, companyID, start, end)
 }
 
 func (r *JournalRepository) GetByStatus(ctx context.Context, companyID uuid.UUID, status entity.JournalStatus) ([]entity.JournalEntry, error) {
-	return r.getJournalsWithLines(ctx,
-		`WHERE j.company_id = $1 AND j.status = $2 ORDER BY j.created_at DESC, jl.line_number`,
-		companyID, status,
-	)
+	return r.getJournalsWithLines(ctx, `WHERE j.company_id = $1 AND j.status = $2 ORDER BY j.created_at DESC, jl.line_number`, companyID, status)
 }
 
 func (r *JournalRepository) GetByCompany(ctx context.Context, companyID uuid.UUID, limit, offset int, search string) ([]entity.JournalEntry, error) {
-	// Build WHERE clause
-	whereClause := `WHERE company_id = $1`
-	args := []interface{}{companyID}
+	qb := querybuilder.New()
+	qb.AddCondition("company_id = $%d", companyID)
 
 	if search != "" {
-		whereClause += fmt.Sprintf(` AND (description ILIKE $%d OR entry_number ILIKE $%d)`, len(args)+1, len(args)+1)
-		args = append(args, "%"+search+"%")
+		qb.AddSearch(search, "description", "entry_number")
 	}
 
-	// Use a subquery to handle LIMIT/OFFSET properly with the LEFT JOIN
+	whereClause := qb.WhereClause()
+	limitPos, offsetPos := qb.AddLimitOffset(limit, offset)
+
 	query := fmt.Sprintf(`
 		SELECT 
 			j.id, j.company_id, j.period_id, j.entry_number, j.entry_date, 
@@ -160,23 +143,20 @@ func (r *JournalRepository) GetByCompany(ctx context.Context, companyID uuid.UUI
 			jl.debit_amount, jl.credit_amount
 		FROM (
 			SELECT * FROM journal_entries 
-			%s 
+			WHERE %s 
 			ORDER BY created_at DESC 
 			LIMIT $%d OFFSET $%d
 		) j
 		LEFT JOIN journal_lines jl ON j.id = jl.journal_id
 		ORDER BY j.created_at DESC, jl.line_number
-	`, whereClause, len(args)+1, len(args)+2)
+	`, whereClause, limitPos, offsetPos)
 
-	args = append(args, limit, offset)
-
-	rows, err := r.db.Query(ctx, query, args...)
+	rows, err := r.db.Query(ctx, query, qb.Args()...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	// Map to aggregate lines by journal
 	journalMap := make(map[uuid.UUID]*entity.JournalEntry)
 	var journalOrder []uuid.UUID
 
@@ -187,18 +167,16 @@ func (r *JournalRepository) GetByCompany(ctx context.Context, companyID uuid.UUI
 		var lineDesc *string
 		var lineDebit, lineCredit *string
 
-		err := rows.Scan(
+		if err := rows.Scan(
 			&j.ID, &j.CompanyID, &j.PeriodID, &j.EntryNumber, &j.EntryDate,
 			&j.Description, &j.Status, &j.SourceType, &j.SourceID,
 			&j.CreatedBy, &j.CreatedAt, &j.PostedAt, &j.PostedBy,
 			&lineID, &lineNumber, &lineAccountID, &lineDesc,
 			&lineDebit, &lineCredit,
-		)
-		if err != nil {
+		); err != nil {
 			return nil, err
 		}
 
-		// Get or create journal in map
 		existing, ok := journalMap[j.ID]
 		if !ok {
 			j.Lines = make([]entity.JournalLine, 0)
@@ -207,15 +185,8 @@ func (r *JournalRepository) GetByCompany(ctx context.Context, companyID uuid.UUI
 			existing = &j
 		}
 
-		// Add line if exists (LEFT JOIN may have null lines)
 		if lineID != nil {
-			line := entity.JournalLine{
-				ID:          *lineID,
-				JournalID:   j.ID,
-				LineNumber:  *lineNumber,
-				AccountID:   *lineAccountID,
-				Description: *lineDesc,
-			}
+			line := entity.JournalLine{ID: *lineID, JournalID: j.ID, LineNumber: *lineNumber, AccountID: *lineAccountID, Description: *lineDesc}
 			if lineDebit != nil {
 				line.DebitAmount, _ = decimal.NewFromString(*lineDebit)
 			}
@@ -226,7 +197,6 @@ func (r *JournalRepository) GetByCompany(ctx context.Context, companyID uuid.UUI
 		}
 	}
 
-	// Convert map to slice maintaining order
 	journals := make([]entity.JournalEntry, 0, len(journalOrder))
 	for _, id := range journalOrder {
 		journals = append(journals, *journalMap[id])
@@ -236,17 +206,16 @@ func (r *JournalRepository) GetByCompany(ctx context.Context, companyID uuid.UUI
 }
 
 func (r *JournalRepository) Count(ctx context.Context, companyID uuid.UUID, search string) (int, error) {
-	whereClause := `WHERE company_id = $1`
-	args := []interface{}{companyID}
+	qb := querybuilder.New()
+	qb.AddCondition("company_id = $%d", companyID)
 
 	if search != "" {
-		whereClause += fmt.Sprintf(` AND (description ILIKE $%d OR entry_number ILIKE $%d)`, len(args)+1, len(args)+1)
-		args = append(args, "%"+search+"%")
+		qb.AddSearch(search, "description", "entry_number")
 	}
 
-	query := fmt.Sprintf(`SELECT COUNT(*) FROM journal_entries %s`, whereClause)
+	query := fmt.Sprintf(`SELECT COUNT(*) FROM journal_entries WHERE %s`, qb.WhereClause())
 	var count int
-	err := r.db.QueryRow(ctx, query, args...).Scan(&count)
+	err := r.db.QueryRow(ctx, query, qb.Args()...).Scan(&count)
 	return count, err
 }
 
@@ -262,7 +231,6 @@ func (r *JournalRepository) GetBalance(ctx context.Context, accountID uuid.UUID)
 	return balance, err
 }
 
-// getJournalsWithLines fetches journals with their lines in a single query (fixes N+1)
 func (r *JournalRepository) getJournalsWithLines(ctx context.Context, whereClause string, args ...interface{}) ([]entity.JournalEntry, error) {
 	query := `
 		SELECT 
@@ -281,7 +249,6 @@ func (r *JournalRepository) getJournalsWithLines(ctx context.Context, whereClaus
 	}
 	defer rows.Close()
 
-	// Map to aggregate lines by journal
 	journalMap := make(map[uuid.UUID]*entity.JournalEntry)
 	var journalOrder []uuid.UUID
 
@@ -292,18 +259,16 @@ func (r *JournalRepository) getJournalsWithLines(ctx context.Context, whereClaus
 		var lineDesc *string
 		var lineDebit, lineCredit *string
 
-		err := rows.Scan(
+		if err := rows.Scan(
 			&j.ID, &j.CompanyID, &j.PeriodID, &j.EntryNumber, &j.EntryDate,
 			&j.Description, &j.Status, &j.SourceType, &j.SourceID,
 			&j.CreatedBy, &j.CreatedAt, &j.PostedAt, &j.PostedBy,
 			&lineID, &lineNumber, &lineAccountID, &lineDesc,
 			&lineDebit, &lineCredit,
-		)
-		if err != nil {
+		); err != nil {
 			return nil, err
 		}
 
-		// Get or create journal in map
 		existing, ok := journalMap[j.ID]
 		if !ok {
 			j.Lines = make([]entity.JournalLine, 0)
@@ -312,15 +277,8 @@ func (r *JournalRepository) getJournalsWithLines(ctx context.Context, whereClaus
 			existing = &j
 		}
 
-		// Add line if exists (LEFT JOIN may have null lines)
 		if lineID != nil {
-			line := entity.JournalLine{
-				ID:          *lineID,
-				JournalID:   j.ID,
-				LineNumber:  *lineNumber,
-				AccountID:   *lineAccountID,
-				Description: *lineDesc,
-			}
+			line := entity.JournalLine{ID: *lineID, JournalID: j.ID, LineNumber: *lineNumber, AccountID: *lineAccountID, Description: *lineDesc}
 			if lineDebit != nil {
 				line.DebitAmount, _ = decimal.NewFromString(*lineDebit)
 			}
@@ -331,7 +289,6 @@ func (r *JournalRepository) getJournalsWithLines(ctx context.Context, whereClaus
 		}
 	}
 
-	// Convert map to slice maintaining order
 	journals := make([]entity.JournalEntry, 0, len(journalOrder))
 	for _, id := range journalOrder {
 		journals = append(journals, *journalMap[id])
@@ -346,9 +303,7 @@ func (r *JournalRepository) Update(ctx context.Context, journal *entity.JournalE
 		SET status = $2, posted_at = $3, posted_by = $4
 		WHERE id = $1
 	`
-	_, err := r.db.Exec(ctx, query,
-		journal.ID, journal.Status, journal.PostedAt, journal.PostedBy,
-	)
+	_, err := r.db.Exec(ctx, query, journal.ID, journal.Status, journal.PostedAt, journal.PostedBy)
 	return err
 }
 
@@ -359,35 +314,19 @@ func (r *JournalRepository) UpdateDetails(ctx context.Context, journal *entity.J
 	}
 	defer tx.Rollback(ctx)
 
-	// 1. Update Header
-	headerQuery := `
-		UPDATE journal_entries 
-		SET description = $2, entry_date = $3
-		WHERE id = $1
-	`
-	_, err = tx.Exec(ctx, headerQuery, journal.ID, journal.Description, journal.EntryDate)
+	_, err = tx.Exec(ctx, `UPDATE journal_entries SET description = $2, entry_date = $3 WHERE id = $1`, journal.ID, journal.Description, journal.EntryDate)
 	if err != nil {
 		return err
 	}
 
-	// 2. Delete existing lines
-	deleteQuery := `DELETE FROM journal_lines WHERE journal_id = $1`
-	_, err = tx.Exec(ctx, deleteQuery, journal.ID)
+	_, err = tx.Exec(ctx, `DELETE FROM journal_lines WHERE journal_id = $1`, journal.ID)
 	if err != nil {
 		return err
 	}
 
-	// 3. Insert new lines
-	lineQuery := `
-		INSERT INTO journal_lines 
-		(id, journal_id, line_number, account_id, description, debit_amount, credit_amount)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`
+	lineQuery := `INSERT INTO journal_lines (id, journal_id, line_number, account_id, description, debit_amount, credit_amount) VALUES ($1, $2, $3, $4, $5, $6, $7)`
 	for _, line := range journal.Lines {
-		_, err = tx.Exec(ctx, lineQuery,
-			line.ID, journal.ID, line.LineNumber, line.AccountID,
-			line.Description, line.DebitAmount, line.CreditAmount,
-		)
+		_, err = tx.Exec(ctx, lineQuery, line.ID, journal.ID, line.LineNumber, line.AccountID, line.Description, line.DebitAmount, line.CreditAmount)
 		if err != nil {
 			return err
 		}
@@ -397,16 +336,11 @@ func (r *JournalRepository) UpdateDetails(ctx context.Context, journal *entity.J
 }
 
 func (r *JournalRepository) CountByYear(ctx context.Context, companyID uuid.UUID, year int) (int, error) {
-	query := `
-		SELECT COUNT(*) FROM journal_entries 
-		WHERE company_id = $1 AND EXTRACT(YEAR FROM entry_date) = $2
-	`
 	var count int
-	err := r.db.QueryRow(ctx, query, companyID, year).Scan(&count)
+	err := r.db.QueryRow(ctx, `SELECT COUNT(*) FROM journal_entries WHERE company_id = $1 AND EXTRACT(YEAR FROM entry_date) = $2`, companyID, year).Scan(&count)
 	return count, err
 }
 
-// CreateReversalWithTransaction creates reversal and updates original in single transaction
 func (r *JournalRepository) CreateReversalWithTransaction(ctx context.Context, reversal *entity.JournalEntry, originalID uuid.UUID) error {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
@@ -414,40 +348,20 @@ func (r *JournalRepository) CreateReversalWithTransaction(ctx context.Context, r
 	}
 	defer tx.Rollback(ctx)
 
-	// 1. Insert reversal header
-	headerQuery := `
-		INSERT INTO journal_entries 
-		(id, company_id, period_id, entry_number, entry_date, description, status, source_type, source_id, created_by, created_at, posted_at, posted_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-	`
-	_, err = tx.Exec(ctx, headerQuery,
-		reversal.ID, reversal.CompanyID, reversal.PeriodID, reversal.EntryNumber,
-		reversal.EntryDate, reversal.Description, reversal.Status, reversal.SourceType,
-		reversal.SourceID, reversal.CreatedBy, reversal.CreatedAt, reversal.PostedAt, reversal.PostedBy,
-	)
+	headerQuery := `INSERT INTO journal_entries (id, company_id, period_id, entry_number, entry_date, description, status, source_type, source_id, created_by, created_at, posted_at, posted_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`
+	_, err = tx.Exec(ctx, headerQuery, reversal.ID, reversal.CompanyID, reversal.PeriodID, reversal.EntryNumber, reversal.EntryDate, reversal.Description, reversal.Status, reversal.SourceType, reversal.SourceID, reversal.CreatedBy, reversal.CreatedAt, reversal.PostedAt, reversal.PostedBy)
 	if err != nil {
 		return err
 	}
 
-	// 2. Insert reversal lines
-	lineQuery := `
-		INSERT INTO journal_lines 
-		(id, journal_id, line_number, account_id, description, debit_amount, credit_amount)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`
 	for _, line := range reversal.Lines {
-		_, err = tx.Exec(ctx, lineQuery,
-			line.ID, reversal.ID, line.LineNumber, line.AccountID,
-			line.Description, line.DebitAmount, line.CreditAmount,
-		)
+		_, err = tx.Exec(ctx, `INSERT INTO journal_lines (id, journal_id, line_number, account_id, description, debit_amount, credit_amount) VALUES ($1, $2, $3, $4, $5, $6, $7)`, line.ID, reversal.ID, line.LineNumber, line.AccountID, line.Description, line.DebitAmount, line.CreditAmount)
 		if err != nil {
 			return err
 		}
 	}
 
-	// 3. Update original journal status to REVERSED
-	updateQuery := `UPDATE journal_entries SET status = 'REVERSED' WHERE id = $1`
-	_, err = tx.Exec(ctx, updateQuery, originalID)
+	_, err = tx.Exec(ctx, `UPDATE journal_entries SET status = 'REVERSED' WHERE id = $1`, originalID)
 	if err != nil {
 		return err
 	}
@@ -455,7 +369,6 @@ func (r *JournalRepository) CreateReversalWithTransaction(ctx context.Context, r
 	return tx.Commit(ctx)
 }
 
-// ClosePeriodWithTransaction creates closing journal and updates period status in single transaction
 func (r *JournalRepository) ClosePeriodWithTransaction(ctx context.Context, closingJournal *entity.JournalEntry, period *entity.AccountingPeriod) error {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
@@ -463,46 +376,20 @@ func (r *JournalRepository) ClosePeriodWithTransaction(ctx context.Context, clos
 	}
 	defer tx.Rollback(ctx)
 
-	// 1. Insert closing journal header
-	headerQuery := `
-		INSERT INTO journal_entries 
-		(id, company_id, period_id, entry_number, entry_date, description, status, source_type, source_id, created_by, created_at, posted_at, posted_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-	`
-	_, err = tx.Exec(ctx, headerQuery,
-		closingJournal.ID, closingJournal.CompanyID, closingJournal.PeriodID, closingJournal.EntryNumber,
-		closingJournal.EntryDate, closingJournal.Description, closingJournal.Status, closingJournal.SourceType,
-		closingJournal.SourceID, closingJournal.CreatedBy, closingJournal.CreatedAt, closingJournal.PostedAt, closingJournal.PostedBy,
-	)
+	headerQuery := `INSERT INTO journal_entries (id, company_id, period_id, entry_number, entry_date, description, status, source_type, source_id, created_by, created_at, posted_at, posted_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`
+	_, err = tx.Exec(ctx, headerQuery, closingJournal.ID, closingJournal.CompanyID, closingJournal.PeriodID, closingJournal.EntryNumber, closingJournal.EntryDate, closingJournal.Description, closingJournal.Status, closingJournal.SourceType, closingJournal.SourceID, closingJournal.CreatedBy, closingJournal.CreatedAt, closingJournal.PostedAt, closingJournal.PostedBy)
 	if err != nil {
 		return err
 	}
 
-	// 2. Insert closing journal lines
-	lineQuery := `
-		INSERT INTO journal_lines 
-		(id, journal_id, line_number, account_id, description, debit_amount, credit_amount)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`
 	for i, line := range closingJournal.Lines {
-		_, err = tx.Exec(ctx, lineQuery,
-			uuid.New(), closingJournal.ID, i+1, line.AccountID,
-			line.Description, line.DebitAmount, line.CreditAmount,
-		)
+		_, err = tx.Exec(ctx, `INSERT INTO journal_lines (id, journal_id, line_number, account_id, description, debit_amount, credit_amount) VALUES ($1, $2, $3, $4, $5, $6, $7)`, uuid.New(), closingJournal.ID, i+1, line.AccountID, line.Description, line.DebitAmount, line.CreditAmount)
 		if err != nil {
 			return err
 		}
 	}
 
-	// 3. Update period status
-	periodQuery := `
-		UPDATE accounting_periods
-		SET status = $1, closed_at = $2, closed_by = $3, updated_at = NOW()
-		WHERE id = $4
-	`
-	_, err = tx.Exec(ctx, periodQuery,
-		period.Status, period.ClosedAt, period.ClosedBy, period.ID,
-	)
+	_, err = tx.Exec(ctx, `UPDATE accounting_periods SET status = $1, closed_at = $2, closed_by = $3, updated_at = NOW() WHERE id = $4`, period.Status, period.ClosedAt, period.ClosedBy, period.ID)
 	if err != nil {
 		return err
 	}

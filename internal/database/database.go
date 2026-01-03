@@ -15,7 +15,18 @@ func Connect(cfg config.DatabaseConfig) (*pgxpool.Pool, error) {
 		cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.Name,
 	)
 
-	pool, err := pgxpool.New(context.Background(), dsn)
+	poolConfig, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return nil, fmt.Errorf("parse config error: %w", err)
+	}
+
+	// Apply pool settings from config
+	poolConfig.MaxConns = int32(cfg.MaxConns)
+	poolConfig.MinConns = int32(cfg.MinConns)
+	poolConfig.MaxConnLifetime = cfg.MaxConnLifetime
+	poolConfig.MaxConnIdleTime = cfg.MaxConnIdleTime
+
+	pool, err := pgxpool.NewWithConfig(context.Background(), poolConfig)
 	if err != nil {
 		return nil, fmt.Errorf("connect error: %w", err)
 	}
@@ -24,6 +35,6 @@ func Connect(cfg config.DatabaseConfig) (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("ping error: %w", err)
 	}
 
-	log.Println("✓ Database connected")
+	log.Printf("✓ Database connected (pool: %d-%d conns)", cfg.MinConns, cfg.MaxConns)
 	return pool, nil
 }

@@ -63,18 +63,8 @@ type DBExecutor interface {
 	QueryRow(ctx context.Context, sql string, args ...interface{}) pgx.Row
 }
 
-// getExecutor returns the transaction from context if it exists, otherwise the pool
-func (tm *TransactionManager) getExecutor(ctx context.Context) DBExecutor {
-	if tx, ok := ctx.Value(txKey).(pgx.Tx); ok {
-		return tx
-	}
-	return tm.pool
-}
-
-// GetExecutorExported allows repositories in the same package to access the helper
-// Since they are in the same package 'postgres', they can access unexported methods if I attach them to a shared struct or just use a standalone function.
-// But better pattern:
-// Repositories should use a helper function.
+// GetExecutor returns the transaction from context if it exists, otherwise the pool.
+// This helper allows repositories to seamlessly switch between atomic (transactional) and non-atomic operations.
 func GetExecutor(ctx context.Context, pool *pgxpool.Pool) DBExecutor {
 	if tx, ok := ctx.Value(txKey).(pgx.Tx); ok {
 		return tx
