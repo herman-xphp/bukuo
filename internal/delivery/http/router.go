@@ -33,6 +33,7 @@ type Handlers struct {
 	Delivery     *handler.DeliveryHandler
 	Opname       *handler.OpnameHandler
 	Transfer     *handler.TransferHandler
+	FixedAsset   *handler.FixedAssetHandler
 }
 
 // SetupRouter configures all routes
@@ -339,6 +340,19 @@ func SetupRouter(r *gin.Engine, h *Handlers, authMW *middleware.AuthMiddleware) 
 		{
 			closingRoutes.GET("/preview/:period_id", h.Closing.PreviewClosing)
 			closingRoutes.POST("/period", h.Closing.ClosePeriod)
+		}
+
+		// Fixed Assets (Admin/Accountant)
+		assets := api.Group("/assets")
+		assets.Use(authMW.RequireRole(string(entity.UserRoleAdmin), string(entity.UserRoleOwner), string(entity.UserRoleAccountant)))
+		{
+			assets.GET("", h.FixedAsset.List)
+			assets.GET("/:id", h.FixedAsset.Get)
+			assets.POST("", h.FixedAsset.Create)
+			assets.POST("/:id/dispose", h.FixedAsset.Dispose)
+			assets.POST("/depreciation", h.FixedAsset.RunDepreciation)
+			assets.GET("/categories", h.FixedAsset.ListCategories)
+			assets.POST("/categories", h.FixedAsset.CreateCategory)
 		}
 
 		// Opening Balance (Admin/Accountant)
