@@ -27,6 +27,7 @@ import (
 	contactUC "github.com/herman-xphp/bukuo/internal/usecase/contact"
 	currencyUC "github.com/herman-xphp/bukuo/internal/usecase/currency"
 	exchangerateUC "github.com/herman-xphp/bukuo/internal/usecase/exchangerate"
+	fixedassetUC "github.com/herman-xphp/bukuo/internal/usecase/fixedasset"
 	inventoryUC "github.com/herman-xphp/bukuo/internal/usecase/inventory"
 	journalUC "github.com/herman-xphp/bukuo/internal/usecase/journal"
 	openingUC "github.com/herman-xphp/bukuo/internal/usecase/opening"
@@ -149,6 +150,11 @@ func main() {
 	opnameUsecase := inventoryUC.NewOpnameUsecase(opnameRepo, inventoryUsecase, inventoryRepo, txManager)
 	transferUsecase := inventoryUC.NewTransferUsecase(transferRepo, inventoryUsecase, inventoryRepo, txManager)
 
+	// Fixed Assets
+	fixedAssetRepo := postgres.NewFixedAssetRepository(db)
+	assetCategoryRepo := postgres.NewAssetCategoryRepository(db)
+	fixedAssetUsecase := fixedassetUC.NewFixedAssetUsecase(fixedAssetRepo, assetCategoryRepo, journalRepo, periodRepo, txManager)
+
 	// Delivery Layer - HTTP Handlers
 	handlers := &httpDelivery.Handlers{
 		Health:       handler.NewHealthHandler(),
@@ -175,6 +181,7 @@ func main() {
 		Delivery:     handler.NewDeliveryHandler(deliveryUsecase),
 		Opname:       handler.NewOpnameHandler(opnameUsecase),
 		Transfer:     handler.NewTransferHandler(transferUsecase),
+		FixedAsset:   handler.NewFixedAssetHandler(fixedAssetUsecase),
 	}
 
 	// Middleware
