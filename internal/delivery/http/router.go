@@ -34,6 +34,7 @@ type Handlers struct {
 	Opname       *handler.OpnameHandler
 	Transfer     *handler.TransferHandler
 	FixedAsset   *handler.FixedAssetHandler
+	Tax          *handler.TaxHandler
 }
 
 // SetupRouter configures all routes
@@ -353,6 +354,24 @@ func SetupRouter(r *gin.Engine, h *Handlers, authMW *middleware.AuthMiddleware) 
 			assets.POST("/depreciation", h.FixedAsset.RunDepreciation)
 			assets.GET("/categories", h.FixedAsset.ListCategories)
 			assets.POST("/categories", h.FixedAsset.CreateCategory)
+		}
+
+		// Tax (Admin/Accountant)
+		taxRoutes := api.Group("/tax")
+		taxRoutes.Use(authMW.RequireRole(string(entity.UserRoleAdmin), string(entity.UserRoleOwner), string(entity.UserRoleAccountant)))
+		{
+			// Tax Rates
+			taxRoutes.GET("/rates", h.Tax.ListRates)
+			taxRoutes.GET("/rates/:id", h.Tax.GetRate)
+			taxRoutes.POST("/rates", h.Tax.CreateRate)
+			taxRoutes.DELETE("/rates/:id", h.Tax.DeleteRate)
+
+			// Tax Returns (SPT)
+			taxRoutes.GET("/returns", h.Tax.ListReturns)
+			taxRoutes.GET("/returns/:id", h.Tax.GetReturn)
+			taxRoutes.POST("/returns", h.Tax.CreateReturn)
+			taxRoutes.POST("/returns/:id/file", h.Tax.FileReturn)
+			taxRoutes.POST("/returns/:id/pay", h.Tax.PayReturn)
 		}
 
 		// Opening Balance (Admin/Accountant)
