@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 )
 
 // WidgetType represents the type of dashboard widget
@@ -54,4 +55,39 @@ type UserDashboardPreference struct {
 	LayoutType      string    `json:"layout_type"`      // DEFAULT, COMPACT
 	RefreshInterval int       `json:"refresh_interval"` // Seconds
 	UpdatedAt       time.Time `json:"updated_at"`
+}
+
+// SalesTrendItem represents a single data point for sales chart
+type SalesTrendItem struct {
+	Date   string          `json:"date"` // YYYY-MM-DD
+	Amount decimal.Decimal `json:"amount"`
+}
+
+// ExpenseBreakdownItem represents a slice of expense pie chart
+type ExpenseBreakdownItem struct {
+	Category   string          `json:"category"`
+	Amount     decimal.Decimal `json:"amount"`
+	Percentage float64         `json:"percentage"`
+}
+
+// CashFlowTrendItem represents a single data point for cash flow chart
+type CashFlowTrendItem struct {
+	Date      string          `json:"date"` // YYYY-MM-DD
+	Incoming  decimal.Decimal `json:"incoming"`
+	Outgoing  decimal.Decimal `json:"outgoing"`
+	NetChange decimal.Decimal `json:"net_change"`
+}
+
+// DashboardStats used in ReportUsecase
+type DashboardStats struct {
+	TotalRevenue        decimal.Decimal        `json:"total_revenue"`
+	TotalExpenses       decimal.Decimal        `json:"total_expenses"`
+	NetIncome           decimal.Decimal        `json:"net_income"`
+	ActiveAccounts      int                    `json:"active_accounts"`
+	RecentJournals      []JournalEntry         `json:"recent_journals"`
+	RevenueGrowth       float64                `json:"revenue_growth"`
+	ActiveAccountGrowth int                    `json:"active_account_growth"`
+	SalesTrend          []SalesTrendItem       `json:"sales_trend"`
+	ExpenseBreakdown    []ExpenseBreakdownItem `json:"expense_breakdown"`
+	CashFlowTrend       []CashFlowTrendItem    `json:"cash_flow_trend"`
 }
