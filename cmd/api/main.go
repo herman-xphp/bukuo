@@ -143,6 +143,12 @@ func main() {
 	orderUsecase := salesUC.NewOrderUsecase(orderRepo, deliveryRepo, txManager)
 	deliveryUsecase := salesUC.NewDeliveryUsecase(deliveryRepo, orderRepo, inventoryUsecase, txManager)
 
+	// Advanced Inventory
+	opnameRepo := postgres.NewStockOpnameRepository(db)
+	transferRepo := postgres.NewStockTransferRepository(db)
+	opnameUsecase := inventoryUC.NewOpnameUsecase(opnameRepo, inventoryUsecase, inventoryRepo, txManager)
+	transferUsecase := inventoryUC.NewTransferUsecase(transferRepo, inventoryUsecase, inventoryRepo, txManager)
+
 	// Delivery Layer - HTTP Handlers
 	handlers := &httpDelivery.Handlers{
 		Health:       handler.NewHealthHandler(),
@@ -167,6 +173,8 @@ func main() {
 		Quotation:    handler.NewQuotationHandler(quotationUsecase),
 		Order:        handler.NewOrderHandler(orderUsecase),
 		Delivery:     handler.NewDeliveryHandler(deliveryUsecase),
+		Opname:       handler.NewOpnameHandler(opnameUsecase),
+		Transfer:     handler.NewTransferHandler(transferUsecase),
 	}
 
 	// Middleware

@@ -31,6 +31,8 @@ type Handlers struct {
 	Quotation    *handler.QuotationHandler
 	Order        *handler.OrderHandler
 	Delivery     *handler.DeliveryHandler
+	Opname       *handler.OpnameHandler
+	Transfer     *handler.TransferHandler
 }
 
 // SetupRouter configures all routes
@@ -212,6 +214,17 @@ func SetupRouter(r *gin.Engine, h *Handlers, authMW *middleware.AuthMiddleware) 
 			{
 				protected.POST("/stock-in", h.Inventory.StockIn)
 				protected.POST("/stock-out", h.Inventory.StockOut)
+
+				// Stock Opname
+				protected.GET("/opname", h.Opname.List)
+				protected.GET("/opname/:id", h.Opname.Get)
+				protected.POST("/opname", h.Opname.Create)
+				protected.POST("/opname/:id/approve", h.Opname.Approve)
+
+				// Stock Transfers
+				protected.GET("/transfers", h.Transfer.List)
+				protected.GET("/transfers/:id", h.Transfer.Get)
+				protected.POST("/transfers", h.Transfer.Create)
 			}
 		}
 
