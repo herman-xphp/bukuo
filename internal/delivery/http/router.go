@@ -39,6 +39,7 @@ type Handlers struct {
 	Purchasing   *handler.PurchasingHandler
 	ARAP         *handler.ARAPHandler
 	Audit        *handler.AuditHandler
+	Budget       *handler.BudgetHandler
 }
 
 // SetupRouter configures all routes
@@ -429,6 +430,18 @@ func SetupRouter(r *gin.Engine, h *Handlers, authMW *middleware.AuthMiddleware) 
 			auditRoutes.GET("/entity/:type/:id", h.Audit.GetByEntity)
 			auditRoutes.GET("/user/:id", h.Audit.GetByUser)
 			auditRoutes.GET("/range", h.Audit.GetByDateRange)
+		}
+
+		// Budget (Admin/Accountant)
+		budgetRoutes := api.Group("/budgets")
+		budgetRoutes.Use(authMW.RequireRole(string(entity.UserRoleAdmin), string(entity.UserRoleOwner), string(entity.UserRoleAccountant)))
+		{
+			budgetRoutes.GET("", h.Budget.List)
+			budgetRoutes.GET("/:id", h.Budget.Get)
+			budgetRoutes.POST("", h.Budget.Create)
+			budgetRoutes.POST("/:id/approve", h.Budget.Approve)
+			budgetRoutes.POST("/:id/activate", h.Budget.Activate)
+			budgetRoutes.GET("/:id/variance", h.Budget.Variance)
 		}
 
 		// Opening Balance (Admin/Accountant)

@@ -25,6 +25,7 @@ import (
 	auditUC "github.com/herman-xphp/bukuo/internal/usecase/audit"
 	authUC "github.com/herman-xphp/bukuo/internal/usecase/auth"
 	bankingUC "github.com/herman-xphp/bukuo/internal/usecase/banking"
+	budgetUC "github.com/herman-xphp/bukuo/internal/usecase/budget"
 	categoryUC "github.com/herman-xphp/bukuo/internal/usecase/category"
 	closingUC "github.com/herman-xphp/bukuo/internal/usecase/closing"
 	contactUC "github.com/herman-xphp/bukuo/internal/usecase/contact"
@@ -182,6 +183,10 @@ func main() {
 	// Audit
 	auditUsecase := auditUC.NewAuditUsecase(auditLogRepo)
 
+	// Budget
+	budgetRepo := postgres.NewBudgetRepository(db)
+	budgetUsecase := budgetUC.NewBudgetUsecase(budgetRepo)
+
 	// Delivery Layer - HTTP Handlers
 	handlers := &httpDelivery.Handlers{
 		Health:       handler.NewHealthHandler(),
@@ -214,6 +219,7 @@ func main() {
 		Purchasing:   handler.NewPurchasingHandler(purchasingUsecase),
 		ARAP:         handler.NewARAPHandler(arapUsecase),
 		Audit:        handler.NewAuditHandler(auditUsecase),
+		Budget:       handler.NewBudgetHandler(budgetUsecase),
 	}
 
 	// Middleware
