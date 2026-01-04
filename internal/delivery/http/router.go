@@ -40,6 +40,7 @@ type Handlers struct {
 	ARAP         *handler.ARAPHandler
 	Audit        *handler.AuditHandler
 	Budget       *handler.BudgetHandler
+	Payroll      *handler.PayrollHandler
 }
 
 // SetupRouter configures all routes
@@ -442,6 +443,18 @@ func SetupRouter(r *gin.Engine, h *Handlers, authMW *middleware.AuthMiddleware) 
 			budgetRoutes.POST("/:id/approve", h.Budget.Approve)
 			budgetRoutes.POST("/:id/activate", h.Budget.Activate)
 			budgetRoutes.GET("/:id/variance", h.Budget.Variance)
+		}
+
+		// Payroll (Admin/HR)
+		payrollRoutes := api.Group("/payroll")
+		payrollRoutes.Use(authMW.RequireRole(string(entity.UserRoleAdmin), string(entity.UserRoleOwner), string(entity.UserRoleAccountant))) // Assuming Accountant handles Payroll for now
+		{
+			payrollRoutes.POST("/employees", h.Payroll.CreateEmployee)
+			payrollRoutes.GET("/employees", h.Payroll.ListEmployees)
+			payrollRoutes.GET("/employees/:id", h.Payroll.GetEmployee)
+			payrollRoutes.POST("/runs", h.Payroll.GeneratePayRun)
+			payrollRoutes.GET("/runs/:id", h.Payroll.GetPayRun)
+			payrollRoutes.POST("/runs/:id/approve", h.Payroll.ApprovePayRun)
 		}
 
 		// Opening Balance (Admin/Accountant)
