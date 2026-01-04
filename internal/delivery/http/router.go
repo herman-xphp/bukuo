@@ -37,6 +37,7 @@ type Handlers struct {
 	Tax          *handler.TaxHandler
 	Banking      *handler.BankingHandler
 	Purchasing   *handler.PurchasingHandler
+	ARAP         *handler.ARAPHandler
 }
 
 // SetupRouter configures all routes
@@ -405,6 +406,17 @@ func SetupRouter(r *gin.Engine, h *Handlers, authMW *middleware.AuthMiddleware) 
 			purchasingRoutes.GET("/invoices", h.Purchasing.ListInvoices)
 			purchasingRoutes.GET("/invoices/:id", h.Purchasing.GetInvoice)
 			purchasingRoutes.POST("/invoices", h.Purchasing.CreateInvoice)
+		}
+
+		// AR/AP Reporting (Admin/Accountant)
+		arapRoutes := api.Group("/arap")
+		arapRoutes.Use(authMW.RequireRole(string(entity.UserRoleAdmin), string(entity.UserRoleOwner), string(entity.UserRoleAccountant)))
+		{
+			arapRoutes.GET("/summary", h.ARAP.Summary)
+			arapRoutes.GET("/receivables/aging", h.ARAP.ARAgingReport)
+			arapRoutes.GET("/receivables/outstanding", h.ARAP.OutstandingReceivables)
+			arapRoutes.GET("/payables/aging", h.ARAP.APAgingReport)
+			arapRoutes.GET("/payables/outstanding", h.ARAP.OutstandingPayables)
 		}
 
 		// Opening Balance (Admin/Accountant)
