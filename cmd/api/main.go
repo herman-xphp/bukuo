@@ -22,6 +22,7 @@ import (
 	"github.com/herman-xphp/bukuo/internal/infrastructure/startup"
 	accountUC "github.com/herman-xphp/bukuo/internal/usecase/account"
 	arapUC "github.com/herman-xphp/bukuo/internal/usecase/arap"
+	auditUC "github.com/herman-xphp/bukuo/internal/usecase/audit"
 	authUC "github.com/herman-xphp/bukuo/internal/usecase/auth"
 	bankingUC "github.com/herman-xphp/bukuo/internal/usecase/banking"
 	categoryUC "github.com/herman-xphp/bukuo/internal/usecase/category"
@@ -178,6 +179,9 @@ func main() {
 	arapRepo := postgres.NewARAPRepository(db)
 	arapUsecase := arapUC.NewARAPUsecase(arapRepo)
 
+	// Audit
+	auditUsecase := auditUC.NewAuditUsecase(auditLogRepo)
+
 	// Delivery Layer - HTTP Handlers
 	handlers := &httpDelivery.Handlers{
 		Health:       handler.NewHealthHandler(),
@@ -209,6 +213,7 @@ func main() {
 		Banking:      handler.NewBankingHandler(bankingUsecase),
 		Purchasing:   handler.NewPurchasingHandler(purchasingUsecase),
 		ARAP:         handler.NewARAPHandler(arapUsecase),
+		Audit:        handler.NewAuditHandler(auditUsecase),
 	}
 
 	// Middleware

@@ -38,6 +38,7 @@ type Handlers struct {
 	Banking      *handler.BankingHandler
 	Purchasing   *handler.PurchasingHandler
 	ARAP         *handler.ARAPHandler
+	Audit        *handler.AuditHandler
 }
 
 // SetupRouter configures all routes
@@ -417,6 +418,17 @@ func SetupRouter(r *gin.Engine, h *Handlers, authMW *middleware.AuthMiddleware) 
 			arapRoutes.GET("/receivables/outstanding", h.ARAP.OutstandingReceivables)
 			arapRoutes.GET("/payables/aging", h.ARAP.APAgingReport)
 			arapRoutes.GET("/payables/outstanding", h.ARAP.OutstandingPayables)
+		}
+
+		// Audit Trail (Admin only)
+		auditRoutes := api.Group("/audit")
+		auditRoutes.Use(authMW.RequireRole(string(entity.UserRoleAdmin)))
+		{
+			auditRoutes.GET("/logs", h.Audit.List)
+			auditRoutes.GET("/summary", h.Audit.Summary)
+			auditRoutes.GET("/entity/:type/:id", h.Audit.GetByEntity)
+			auditRoutes.GET("/user/:id", h.Audit.GetByUser)
+			auditRoutes.GET("/range", h.Audit.GetByDateRange)
 		}
 
 		// Opening Balance (Admin/Accountant)
