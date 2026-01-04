@@ -35,6 +35,7 @@ type Handlers struct {
 	Transfer     *handler.TransferHandler
 	FixedAsset   *handler.FixedAssetHandler
 	Tax          *handler.TaxHandler
+	Banking      *handler.BankingHandler
 }
 
 // SetupRouter configures all routes
@@ -372,6 +373,21 @@ func SetupRouter(r *gin.Engine, h *Handlers, authMW *middleware.AuthMiddleware) 
 			taxRoutes.POST("/returns", h.Tax.CreateReturn)
 			taxRoutes.POST("/returns/:id/file", h.Tax.FileReturn)
 			taxRoutes.POST("/returns/:id/pay", h.Tax.PayReturn)
+		}
+
+		// Banking (Admin/Accountant)
+		bankingRoutes := api.Group("/banking")
+		bankingRoutes.Use(authMW.RequireRole(string(entity.UserRoleAdmin), string(entity.UserRoleOwner), string(entity.UserRoleAccountant)))
+		{
+			// Bank Accounts
+			bankingRoutes.GET("/accounts", h.Banking.ListAccounts)
+			bankingRoutes.GET("/accounts/:id", h.Banking.GetAccount)
+			bankingRoutes.POST("/accounts", h.Banking.CreateAccount)
+			bankingRoutes.GET("/accounts/:id/transactions", h.Banking.ListTransactions)
+
+			// Transactions
+			bankingRoutes.POST("/transactions", h.Banking.CreateTransaction)
+			bankingRoutes.POST("/transactions/:id/reconcile", h.Banking.ReconcileTransaction)
 		}
 
 		// Opening Balance (Admin/Accountant)
