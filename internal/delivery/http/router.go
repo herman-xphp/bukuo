@@ -28,6 +28,9 @@ type Handlers struct {
 	Inventory    *handler.InventoryHandler
 	Sales        *handler.SalesHandler
 	Upload       *handler.UploadHandler
+	Quotation    *handler.QuotationHandler
+	Order        *handler.OrderHandler
+	Delivery     *handler.DeliveryHandler
 }
 
 // SetupRouter configures all routes
@@ -217,14 +220,56 @@ func SetupRouter(r *gin.Engine, h *Handlers, authMW *middleware.AuthMiddleware) 
 		{
 			salesGroup.GET("/invoices", h.Sales.ListInvoices)
 			salesGroup.GET("/invoices/:id", h.Sales.GetInvoice)
-			salesGroup.GET("/orders", h.Sales.ListOrders)
-			salesGroup.GET("/quotations", h.Sales.ListQuotations)
 
 			protected := salesGroup.Group("")
 			protected.Use(authMW.RequireRole(string(entity.UserRoleAdmin), string(entity.UserRoleOwner), string(entity.UserRoleAccountant)))
 			{
 				protected.POST("/invoices", h.Sales.CreateInvoice)
 				protected.POST("/invoices/:id/void", h.Sales.VoidInvoice)
+			}
+		}
+
+		// Quotations (Sales Cycle)
+		quotations := api.Group("/quotations")
+		{
+			quotations.GET("", h.Quotation.List)
+			quotations.GET("/:id", h.Quotation.Get)
+
+			protected := quotations.Group("")
+			protected.Use(authMW.RequireRole(string(entity.UserRoleAdmin), string(entity.UserRoleOwner), string(entity.UserRoleAccountant)))
+			{
+				protected.POST("", h.Quotation.Create)
+				protected.POST("/:id/send", h.Quotation.Send)
+				protected.POST("/:id/accept", h.Quotation.Accept)
+				protected.DELETE("/:id", h.Quotation.Delete)
+			}
+		}
+
+		// Sales Orders (Sales Cycle)
+		orders := api.Group("/orders")
+		{
+			orders.GET("", h.Order.List)
+			orders.GET("/:id", h.Order.Get)
+
+			protected := orders.Group("")
+			protected.Use(authMW.RequireRole(string(entity.UserRoleAdmin), string(entity.UserRoleOwner), string(entity.UserRoleAccountant)))
+			{
+				protected.POST("", h.Order.Create)
+				protected.POST("/:id/confirm", h.Order.Confirm)
+				protected.POST("/:id/cancel", h.Order.Cancel)
+			}
+		}
+
+		// Delivery Orders (Sales Cycle)
+		deliveries := api.Group("/deliveries")
+		{
+			deliveries.GET("", h.Delivery.List)
+			deliveries.GET("/:id", h.Delivery.Get)
+
+			protected := deliveries.Group("")
+			protected.Use(authMW.RequireRole(string(entity.UserRoleAdmin), string(entity.UserRoleOwner), string(entity.UserRoleAccountant)))
+			{
+				protected.POST("", h.Delivery.Create)
 			}
 		}
 

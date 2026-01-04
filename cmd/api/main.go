@@ -111,6 +111,9 @@ func main() {
 	warehouseRepo := postgres.NewWarehouseRepository(db)
 	inventoryRepo := postgres.NewInventoryRepository(db)
 	salesInvoiceRepo := postgres.NewSalesInvoiceRepository(db)
+	quotationRepo := postgres.NewSalesQuotationRepository(db)
+	orderRepo := postgres.NewSalesOrderRepository(db)
+	deliveryRepo := postgres.NewDeliveryOrderRepository(db)
 
 	// Transaction Manager
 	txManager := postgres.NewTransactionManager(db)
@@ -136,6 +139,9 @@ func main() {
 	warehouseUsecase := warehouseUC.NewWarehouseUsecase(warehouseRepo)
 	inventoryUsecase := inventoryUC.NewInventoryUsecase(inventoryRepo, warehouseRepo, productRepo, txManager)
 	salesUsecase := salesUC.NewSalesUsecase(salesInvoiceRepo, inventoryUsecase, warehouseRepo, txManager)
+	quotationUsecase := salesUC.NewQuotationUsecase(quotationRepo, orderRepo, productRepo)
+	orderUsecase := salesUC.NewOrderUsecase(orderRepo, deliveryRepo, txManager)
+	deliveryUsecase := salesUC.NewDeliveryUsecase(deliveryRepo, orderRepo, inventoryUsecase, txManager)
 
 	// Delivery Layer - HTTP Handlers
 	handlers := &httpDelivery.Handlers{
@@ -158,6 +164,9 @@ func main() {
 		Inventory:    handler.NewInventoryHandler(inventoryUsecase),
 		Sales:        handler.NewSalesHandler(salesUsecase),
 		Upload:       handler.NewUploadHandler("./uploads", "http://localhost:"+cfg.Server.Port),
+		Quotation:    handler.NewQuotationHandler(quotationUsecase),
+		Order:        handler.NewOrderHandler(orderUsecase),
+		Delivery:     handler.NewDeliveryHandler(deliveryUsecase),
 	}
 
 	// Middleware

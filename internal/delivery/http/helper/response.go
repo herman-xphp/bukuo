@@ -105,3 +105,49 @@ func PaginatedItems(c *gin.Context, items interface{}, total int64, p Pagination
 func InvalidID(c *gin.Context, resource string) {
 	c.JSON(http.StatusBadRequest, errorResponse{Error: fmt.Sprintf("invalid %s id", resource)})
 }
+
+// NoContent sends a 204 No Content response
+func NoContent(c *gin.Context) {
+	c.Status(http.StatusNoContent)
+}
+
+// GetPage returns the page number from query params (default 1)
+func GetPage(c *gin.Context) int {
+	page := 1
+	if p := c.Query("page"); p != "" {
+		fmt.Sscanf(p, "%d", &page)
+	}
+	if page < 1 {
+		page = 1
+	}
+	return page
+}
+
+// GetPageSize returns the page size from query params (default 20)
+func GetPageSize(c *gin.Context) int {
+	pageSize := 20
+	if ps := c.Query("page_size"); ps != "" {
+		fmt.Sscanf(ps, "%d", &pageSize)
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+	return pageSize
+}
+
+// SuccessWithPagination sends a 200 OK response with paginated data
+func SuccessWithPagination(c *gin.Context, items interface{}, total int64, page, pageSize int) {
+	totalPages := (int(total) + pageSize - 1) / pageSize
+	c.JSON(http.StatusOK, gin.H{
+		"data": items,
+		"meta": gin.H{
+			"total":       total,
+			"page":        page,
+			"page_size":   pageSize,
+			"total_pages": totalPages,
+		},
+	})
+}
