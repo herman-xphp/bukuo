@@ -34,6 +34,7 @@ import (
 	openingUC "github.com/herman-xphp/bukuo/internal/usecase/opening"
 	periodUC "github.com/herman-xphp/bukuo/internal/usecase/period"
 	productUC "github.com/herman-xphp/bukuo/internal/usecase/product"
+	purchasingUC "github.com/herman-xphp/bukuo/internal/usecase/purchasing"
 	reportUC "github.com/herman-xphp/bukuo/internal/usecase/report"
 	salesUC "github.com/herman-xphp/bukuo/internal/usecase/sales"
 	taxUC "github.com/herman-xphp/bukuo/internal/usecase/tax"
@@ -167,6 +168,11 @@ func main() {
 	bankTxnRepo := postgres.NewBankTransactionRepository(db)
 	bankingUsecase := bankingUC.NewBankingUsecase(bankAccountRepo, bankTxnRepo, journalRepo, txManager)
 
+	// Purchasing
+	purchaseOrderRepo := postgres.NewPurchaseOrderRepository(db)
+	purchaseInvoiceRepo := postgres.NewPurchaseInvoiceRepository(db)
+	purchasingUsecase := purchasingUC.NewPurchasingUsecase(purchaseOrderRepo, purchaseInvoiceRepo, journalRepo, txManager)
+
 	// Delivery Layer - HTTP Handlers
 	handlers := &httpDelivery.Handlers{
 		Health:       handler.NewHealthHandler(),
@@ -196,6 +202,7 @@ func main() {
 		FixedAsset:   handler.NewFixedAssetHandler(fixedAssetUsecase),
 		Tax:          handler.NewTaxHandler(taxUsecase),
 		Banking:      handler.NewBankingHandler(bankingUsecase),
+		Purchasing:   handler.NewPurchasingHandler(purchasingUsecase),
 	}
 
 	// Middleware

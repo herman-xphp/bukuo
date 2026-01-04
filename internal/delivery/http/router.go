@@ -36,6 +36,7 @@ type Handlers struct {
 	FixedAsset   *handler.FixedAssetHandler
 	Tax          *handler.TaxHandler
 	Banking      *handler.BankingHandler
+	Purchasing   *handler.PurchasingHandler
 }
 
 // SetupRouter configures all routes
@@ -388,6 +389,22 @@ func SetupRouter(r *gin.Engine, h *Handlers, authMW *middleware.AuthMiddleware) 
 			// Transactions
 			bankingRoutes.POST("/transactions", h.Banking.CreateTransaction)
 			bankingRoutes.POST("/transactions/:id/reconcile", h.Banking.ReconcileTransaction)
+		}
+
+		// Purchasing (Admin/Accountant)
+		purchasingRoutes := api.Group("/purchasing")
+		purchasingRoutes.Use(authMW.RequireRole(string(entity.UserRoleAdmin), string(entity.UserRoleOwner), string(entity.UserRoleAccountant)))
+		{
+			// Purchase Orders
+			purchasingRoutes.GET("/orders", h.Purchasing.ListOrders)
+			purchasingRoutes.GET("/orders/:id", h.Purchasing.GetOrder)
+			purchasingRoutes.POST("/orders", h.Purchasing.CreateOrder)
+			purchasingRoutes.POST("/orders/:id/approve", h.Purchasing.ApproveOrder)
+
+			// Purchase Invoices
+			purchasingRoutes.GET("/invoices", h.Purchasing.ListInvoices)
+			purchasingRoutes.GET("/invoices/:id", h.Purchasing.GetInvoice)
+			purchasingRoutes.POST("/invoices", h.Purchasing.CreateInvoice)
 		}
 
 		// Opening Balance (Admin/Accountant)
